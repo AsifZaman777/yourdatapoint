@@ -1,7 +1,27 @@
 """
-DataBazaar v2 — Backend Configuration
+MarketingOstad — Backend Configuration
 Region hierarchy and categories for Bangladesh
 """
+import os
+
+# Auto-load .env file if present
+_env_file = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(_env_file):
+    with open(_env_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                os.environ[key.strip()] = val.strip().strip("'").strip('"')
+
+# ── Brevo & Email Configuration ───────────────────────────
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+SMTP_USER = os.getenv("SMTP_USER", "asifdev777@gmail.com")
+
+# ── Superadmin Configuration ──────────────────────────────
+SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "asifdev777@gmail.com")
+SUPERADMIN_PASSWORD = os.getenv("SUPERADMIN_PASSWORD", "admin123")
+SUPERADMIN_NAME = os.getenv("SUPERADMIN_NAME", "Asif Zaman (Superadmin)")
 
 # ── Dataset Categories ───────────────────────────────────
 CATEGORIES = [

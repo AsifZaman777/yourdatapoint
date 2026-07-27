@@ -1,0 +1,6 @@
+2026/07/28-01:49:55.486 4e924e Reusing MANIFEST /Users/sabihakhairohi/Desktop/yourdatapoint/databazaar-v2/backend/whatsapp_session/Default/Local Storage/leveldb/MANIFEST-000001
+2026/07/28-01:49:55.489 4e924e Recovering log #6
+2026/07/28-01:49:55.489 4e924e Reusing old log /Users/sabihakhairohi/Desktop/yourdatapoint/databazaar-v2/backend/whatsapp_session/Default/Local Storage/leveldb/000006.log 
+2026/07/28-01:50:19.187 4e9254 Level-0 table #10: started
+2026/07/28-01:50:19.192 4e9254 Level-0 table #10: 15541 bytes OK
+2026/07/28-01:50:19.198 4e9254 Delete type=0 #6

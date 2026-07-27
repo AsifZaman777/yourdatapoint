@@ -5,6 +5,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.action_chains import ActionChains
 from datetime import datetime
 from database import get_db
 
@@ -31,10 +32,15 @@ def write_log_to_file(campaign_id, campaign_type, message):
 
 def format_phone(phone):
     """Clean and format phone number for WhatsApp URL API"""
-    cleaned = "".join(filter(str.isdigit, str(phone)))
-    if cleaned.startswith("0"):
+    p_str = str(phone).strip()
+    if p_str.endswith(".0"):
+        p_str = p_str[:-2]
+    cleaned = "".join(filter(str.isdigit, p_str))
+    if cleaned.startswith("88001"):
+        cleaned = "8801" + cleaned[5:]
+    elif cleaned.startswith("01"):
         cleaned = "88" + cleaned
-    elif cleaned.startswith("1"):
+    elif cleaned.startswith("1") and len(cleaned) == 10:
         cleaned = "880" + cleaned
     return cleaned
 
@@ -77,6 +83,48 @@ def save_campaign_screenshot(driver, campaign_id):
         driver.save_screenshot(screenshot_path)
     except Exception:
         pass
+
+def type_text_safely(driver, element, text, wpm=40):
+    """Calibrated Humanized typing simulator at exact WPM (default 40 WPM)"""
+    sec_per_word = 60.0 / float(wpm)  # 40 WPM = 1.5 seconds per word
+    lines = text.split("\n")
+    for l_idx, line in enumerate(lines):
+        if l_idx > 0:
+            try:
+                ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT).perform()
+            except Exception:
+                pass
+            time.sleep(random.uniform(0.8, 1.4))
+
+        words = line.split(" ")
+        for w_idx, word in enumerate(words):
+            word_to_type = word + (" " if w_idx < len(words) - 1 else "")
+            
+            try:
+                driver.execute_script(
+                    """
+                    var el = arguments[0];
+                    var txt = arguments[1];
+                    el.focus();
+                    document.execCommand('insertText', false, txt);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    """,
+                    element,
+                    word_to_type
+                )
+            except Exception:
+                bmp_word = "".join(c for c in word_to_type if ord(c) <= 0xFFFF)
+                element.send_keys(bmp_word)
+
+            # Calibrated word delay centered around 40 WPM (~1.5s per word)
+            word_len = max(len(word), 1)
+            word_delay = random.uniform(sec_per_word * 0.7, sec_per_word * 1.3) * (word_len / 5.0)
+            word_delay = max(0.6, min(2.5, word_delay))
+            time.sleep(word_delay)
+
+            # Natural pause at punctuation & Bangla Dari (।)
+            if word and word[-1] in ('.', ',', '!', '?', ':', '।'):
+                time.sleep(random.uniform(0.5, 1.2))
 
 def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group, start_index=0):
     """Core WhatsApp human-emulating thread dispatch manager"""
@@ -173,6 +221,17 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
             start_load = time.time()
             chat_ready = False
             invalid_num = False
+            textbox = None
+
+            textbox_selectors = [
+                '//footer//div[@contenteditable="true"]',
+                '//footer//div[@role="textbox"]',
+                '//div[@data-tab="10"]',
+                '//div[contains(@aria-placeholder, "Type a message")]',
+                '//footer//p',
+                '//div[@contenteditable="true"]'
+            ]
+
             while time.time() - start_load < 35:
                 # Early stop check during page load
                 conn = get_db()
@@ -192,9 +251,13 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
                     invalid_num = True
                     break
                 try:
-                    inputs = driver.find_elements(By.XPATH, '//div[@contenteditable="true"] | //div[@role="textbox"]')
-                    if inputs and len(inputs) > 0:
-                        chat_ready = True
+                    for sel in textbox_selectors:
+                        inputs = driver.find_elements(By.XPATH, sel)
+                        if inputs and len(inputs) > 0:
+                            textbox = inputs[-1]
+                            chat_ready = True
+                            break
+                    if chat_ready:
                         break
                 except Exception:
                     pass
@@ -205,40 +268,42 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
                 update_failed()
                 conn = get_db()
                 conn.execute("INSERT OR REPLACE INTO whatsapp_progress (recipient_group, last_index, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (recipient_group, current_index + 1))
-                conn.execute("UPDATE marketing_campaigns SET sent_count = ? WHERE id = ?", (current_index + 1, campaign_id))
+                conn.execute("UPDATE marketing_campaigns SET sent_count = ? WHERE id = ?", (campaign_id, current_index + 1))
                 conn.commit()
                 conn.close()
                 continue
 
-            if not chat_ready:
+            if not chat_ready or not textbox:
                 log_status(f"⚠️ Failed to load chat element for {name}. Skipping...")
                 update_failed()
                 continue
 
             try:
-                textbox = driver.find_elements(By.XPATH, '//div[@contenteditable="true"] | //div[@role="textbox"]')[-1]
+                # Focus textbox
+                try:
+                    driver.execute_script("arguments[0].focus();", textbox)
+                except Exception:
+                    pass
                 textbox.click()
-                time.sleep(1)
+                time.sleep(0.5)
 
                 log_status(f"Typing message to {name}...")
-                words = personalized_msg.split(" ")
-                for w in words:
-                    conn = get_db()
-                    chk = conn.execute("SELECT status FROM marketing_campaigns WHERE id = ?", (campaign_id,)).fetchone()
-                    conn.close()
-                    if chk and chk["status"] == "stopping":
-                        log_status(f"Campaign stopped during typing. Paused at lead index: {current_index}.")
-                        conn = get_db()
-                        conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
-                        conn.commit()
-                        conn.close()
-                        driver.quit()
-                        return
-                    textbox.send_keys(w + " ")
-                    time.sleep(random.uniform(0.05, 0.2))
+                type_text_safely(driver, textbox, personalized_msg)
+                time.sleep(1.2)
+                
+                # Try clicking WhatsApp Send icon button first
+                send_clicked = False
+                try:
+                    send_btn = driver.find_element(By.XPATH, '//button[@data-tab="11"] | //button[span[@data-icon="send"]] | //span[@data-icon="send"]/parent::button | //button[contains(@aria-label, "Send")]')
+                    send_btn.click()
+                    send_clicked = True
+                except Exception:
+                    pass
 
-                time.sleep(random.uniform(1.0, 2.5))
-                textbox.send_keys(Keys.ENTER)
+                if not send_clicked:
+                    textbox.send_keys(Keys.ENTER)
+
+                time.sleep(1.5)
 
                 # Save screenshot after sending
                 save_campaign_screenshot(driver, campaign_id)

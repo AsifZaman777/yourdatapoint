@@ -1,81 +1,257 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { EMAIL_TEMPLATES, EMAIL_PALETTES } from './emailTemplates';
 import { WHATSAPP_TEMPLATES } from './whatsappTemplates';
-import { 
-  BarChart3, 
-  Database, 
-  Search, 
-  Mail, 
-  MessageSquare, 
-  Bot, 
-  Shield, 
-  Unlock, 
-  Settings, 
-  LogOut, 
-  Plus, 
-  Trash2, 
-  Download, 
-  RefreshCw, 
-  Sparkles, 
-  MessageCircle, 
-  Send, 
-  Lock, 
-  Play, 
-  AlertTriangle, 
-  Activity, 
-  FileText, 
-  History, 
-  Coins, 
+import { TRANSLATIONS } from './translations';
+import heroDashboardImg from './assets/hero_dashboard.png';
+import {
+  BarChart3,
+  Database,
+  Search,
+  Mail,
+  MessageSquare,
+  Bot,
+  Shield,
+  ShieldAlert,
+  Unlock,
+  Settings,
+  LogOut,
+  Plus,
+  Trash2,
+  Download,
+  RefreshCw,
+  Sparkles,
+  MessageCircle,
+  Send,
+  Lock,
+  Play,
+  AlertTriangle,
+  Activity,
+  FileText,
+  History,
+  Coins,
   User,
   CheckCircle2,
-  MapPin
+  MapPin,
+  Check,
+  Zap,
+  Phone,
+  Globe,
+  ShieldCheck,
+  Layers,
+  Headphones,
+  Clock,
+  ChevronRight,
+  HelpCircle,
+  Briefcase,
+  X,
+  Info,
+  Ban,
+  UserCheck,
+  UserX,
+  QrCode
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000';
-
-
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || 'asifdev777@gmail.com';
+const HOTLINE_PHONE = import.meta.env.VITE_HOTLINE_PHONE || '+880 1863443343';
+const SUPPORT_HOURS = import.meta.env.VITE_SUPPORT_HOURS || '24/7 Automated System & Live WhatsApp Assistance';
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [user, setUser] = useState(null);
   const [currentTab, setCurrentTab] = useState('home');
   const [authView, setAuthView] = useState('login'); // 'login' or 'register'
-  
-  // Background Security Tracker
+  const [authVerificationNotice, setAuthVerificationNotice] = useState('');
+  const [lang, setLang] = useState(localStorage.getItem('lang') || 'en');
+
+  const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
+
+  // Landing Page & Contact states
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactSubject, setContactSubject] = useState('');
+  const [contactMessage, setContactMessage] = useState('');
+  const [calcCredits, setCalcCredits] = useState(50);
+  const [showLegalModal, setShowLegalModal] = useState(null); // null, 'privacy', 'terms'
+  const [warningModalTarget, setWarningModalTarget] = useState(null); // null or { userId, userEmail }
+  const [warningType, setWarningType] = useState('Important Information');
+  const [warningMsgInput, setWarningMsgInput] = useState('');
+  const [securityAlertModal, setSecurityAlertModal] = useState(null); // null or { violationType, time }
+
+  // Auto-verify email token from URL query string
   useEffect(() => {
-    if (!token) return;
+    const params = new URLSearchParams(window.location.search);
+    const verifyToken = params.get('verify_token');
+    if (verifyToken) {
+      fetch(`${API_BASE}/api/auth/verify-email?token=${verifyToken}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            showToast(data.message || 'Email verified successfully! You can now log in.', 'success');
+            setCurrentTab('auth');
+            setAuthView('login');
+          } else {
+            showToast(data.detail || 'Email verification failed.', 'error');
+          }
+          window.history.replaceState({}, document.title, window.location.pathname);
+        })
+        .catch(() => {
+          showToast('Error verifying email link.', 'error');
+        });
+    }
+  }, []);
+
+  // 🛡️ Comprehensive Multi-Sensor Screenshot & Snipping Tool Anti-Leak Security Tracker
+  useEffect(() => {
+    let isMetaPressed = false;
+    let isShiftPressed = false;
+    let isCtrlPressed = false;
+    let lastLoggedTime = 0;
+
     const logViolation = (type) => {
+      const now = Date.now();
+      if (now - lastLoggedTime < 800) return;
+      lastLoggedTime = now;
+
+      console.warn('🚨 SECURITY SENSOR: Screenshot attempt intercepted:', type);
+
+      setSecurityAlertModal({
+        violationType: type,
+        time: new Date().toLocaleTimeString()
+      });
+
+      showToast(`⚠️ Screenshot Attempt Intercepted (${type})! User IP logged to Security Module.`, 'warning');
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       fetch(`${API_BASE}/api/security/log-violation`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers,
         body: JSON.stringify({ violation_type: type })
-      }).catch(e => console.error(e));
+      })
+        .then(res => res.json())
+        .then(d => {
+          console.log('[SECURITY LOG ACKNOWLEDGED]', d);
+          // Refresh security violations list for admin
+          if (token) {
+            fetch(`${API_BASE}/api/admin/violations`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            })
+              .then(r => r.json())
+              .then(data => setAdminViolations(Array.isArray(data) ? data : []))
+              .catch(() => { });
+          }
+        })
+        .catch(e => console.error('[SECURITY LOG ERROR]', e));
     };
 
     const handleKeyDown = (e) => {
-      if (e.key === 'PrintScreen') {
-        logViolation("Screenshot attempt (PrintScreen)");
+      if (e.key === 'Meta' || e.key === 'OS' || e.key === 'Win') isMetaPressed = true;
+      if (e.key === 'Shift') isShiftPressed = true;
+      if (e.key === 'Control') isCtrlPressed = true;
+
+      const rawKey = e.key || '';
+      const rawCode = e.code || '';
+      const keyLower = rawKey.toLowerCase();
+      const codeLower = rawCode.toLowerCase();
+
+      let screenshotType = '';
+
+      // 1. PrintScreen key
+      if (keyLower === 'printscreen' || codeLower === 'printscreen' || keyLower === 'prtscn' || rawKey === 'PrintScreen') {
+        screenshotType = 'PrintScreen Key (PrtScn / Win+PrtScn)';
       }
-      if (e.metaKey && e.shiftKey && ['3', '4', '5'].includes(e.key)) {
-        logViolation(`Screenshot attempt (Cmd+Shift+${e.key})`);
+
+      // 2. Win / Cmd + Shift + S
+      else if ((e.metaKey || isMetaPressed || e.ctrlKey) && (e.shiftKey || isShiftPressed) && (keyLower === 's' || codeLower === 'keys')) {
+        screenshotType = 'Snipping Tool (Win/Cmd + Shift + S)';
       }
-      if (e.metaKey && e.shiftKey && (e.key === 's' || e.key === 'S')) {
-        logViolation("Screenshot attempt (Win+Shift+S)");
+
+      // 3. Cmd / Win + Shift + ANY KEY (Catch Cmd+Shift+3/4/5 and all OS screenshot bindings)
+      else if ((e.metaKey || isMetaPressed) && (e.shiftKey || isShiftPressed)) {
+        screenshotType = `macOS / OS Screenshot (Cmd/Win + Shift + ${rawKey || rawCode})`;
+      }
+
+      if (screenshotType) {
+        logViolation(screenshotType);
       }
     };
+
+    const handleKeyUp = (e) => {
+      if (e.key === 'Meta' || e.key === 'OS' || e.key === 'Win') isMetaPressed = false;
+      if (e.key === 'Shift') isShiftPressed = false;
+      if (e.key === 'Control') isCtrlPressed = false;
+
+      const keyLower = (e.key || '').toLowerCase();
+      const codeLower = (e.code || '').toLowerCase();
+      if (keyLower === 'printscreen' || codeLower === 'printscreen' || keyLower === 'prtscn') {
+        logViolation("PrintScreen Key Release");
+      }
+    };
+
+    // 4. WINDOW BLUR SENSOR (Fires when OS Snipping tool overlay or macOS screenshot crosshair grabs focus!)
+    const handleWindowBlur = () => {
+      if ((isMetaPressed || isCtrlPressed) && isShiftPressed) {
+        logViolation("OS Screenshot Overlay Focus Grab (Cmd/Win + Shift)");
+      }
+    };
+
+    // 5. VISIBILITY CHANGE SENSOR (Fires when screen capture overlays blur document visibility)
+    const handleVisibilityChange = () => {
+      if (document.hidden && (isMetaPressed || isShiftPressed)) {
+        logViolation("Screen Capture Hidden Tab State (Cmd/Win + Shift)");
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown, { capture: true });
-    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('keyup', handleKeyUp, { capture: true });
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      window.removeEventListener('keyup', handleKeyUp, { capture: true });
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [token]);
-  
+
   // Region configuration from backend
   const [regionsConfig, setRegionsConfig] = useState(null);
   const [categoriesList, setCategoriesList] = useState([]);
+  const [contactConfig, setContactConfig] = useState(null);
 
   // Auth Form states
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authName, setAuthName] = useState('');
   const [authError, setAuthError] = useState('');
+
+  // Contact form submission via WhatsApp link
+  const handleContactSubmit = (e) => {
+    e.preventDefault();
+    if (!contactName || !contactEmail || !contactMessage) {
+      showToast('Please fill in all required contact fields.', 'warning');
+      return;
+    }
+
+    const cleanWaNumber = HOTLINE_PHONE.replace(/[^0-9]/g, '');
+    const waMsg = `Hi MarketingOstad Support,\n\n*Name:* ${contactName}\n*Email:* ${contactEmail}\n*Phone:* ${contactPhone || 'N/A'}\n*Subject:* ${contactSubject || 'General Inquiry'}\n\n*Message:*\n${contactMessage}`;
+    const waUrl = `https://wa.me/${cleanWaNumber}?text=${encodeURIComponent(waMsg)}`;
+
+    showToast('Opening WhatsApp support chat with your message...', 'success');
+    setTimeout(() => {
+      window.open(waUrl, '_blank');
+    }, 600);
+
+    setContactName('');
+    setContactEmail('');
+    setContactPhone('');
+    setContactSubject('');
+    setContactMessage('');
+  };
 
   // Datasets states
   const [datasets, setDatasets] = useState([]);
@@ -124,22 +300,22 @@ Demo Link: demo.campusbaba.com
   const [campaignLogs, setCampaignLogs] = useState([]);
   const [waStartRow, setWaStartRow] = useState(0);
   const [selectedGroupRowCount, setSelectedGroupRowCount] = useState(0);
-  
+
   // Marketing sub-tab (React state, no DOM manipulation)
   const [marketingSubTab, setMarketingSubTab] = useState('dashboard');
-  
+
   // Dashboard stats
   const [dashboardStats, setDashboardStats] = useState(null);
-  
+
   // Campaign Log expansion
   const [expandedCampaignId, setExpandedCampaignId] = useState(null);
   const [expandedCampaignLogs, setExpandedCampaignLogs] = useState([]);
-  
+
   // Log files
   const [logFilesList, setLogFilesList] = useState([]);
   const [selectedLogDate, setSelectedLogDate] = useState('');
   const [logFileContent, setLogFileContent] = useState(null);
-  
+
   // Custom Toast Notifications
   const [toasts, setToasts] = useState([]);
   const showToast = (message, type = 'info', onConfirm = null, onCancel = null) => {
@@ -154,7 +330,7 @@ Demo Link: demo.campusbaba.com
   const showConfirm = (message, onConfirm, onCancel = null) => {
     showToast(message, 'warning', onConfirm, onCancel);
   };
-  
+
   const handleAiRedirect = (platform) => {
     const promptText = `Please edit/improve this HTML email template for me according to these preferences:
 - Company/Brand Name: ${paramCompanyName}
@@ -222,7 +398,7 @@ Please return ONLY the updated template text.`;
         showToast('Failed to copy prompt to clipboard.', 'error');
       });
   };
-  
+
   const [emailRecipientGroup, setEmailRecipientGroup] = useState('');
   const [emailSubject, setEmailSubject] = useState('Special marketing offer!');
   const [emailPalette, setEmailPalette] = useState(EMAIL_PALETTES[0]);
@@ -239,11 +415,11 @@ Please return ONLY the updated template text.`;
   const [emailPreviewContent, setEmailPreviewContent] = useState('');
 
   // Parameterized email template builder states
-  const [paramCompanyName, setParamCompanyName] = useState('DataBazaar Promo');
+  const [paramCompanyName, setParamCompanyName] = useState('MarketingOstad Promo');
   const [paramHeading, setParamHeading] = useState('Save 25% Sitewide');
   const [paramPromoCode, setParamPromoCode] = useState('SAVE25');
   const [paramCtaText, setParamCtaText] = useState('Get Started');
-  const [paramCtaLink, setParamCtaLink] = useState('https://databazaar.com');
+  const [paramCtaLink, setParamCtaLink] = useState('https://marketingostad.com');
   const [paramDescription, setParamDescription] = useState('We discovered your details and wanted to offer our premium services.');
 
   // Admin Dashboard states
@@ -263,62 +439,171 @@ Please return ONLY the updated template text.`;
 
   // General campaigns list
   const [campaignsList, setCampaignsList] = useState([]);
-  
+
+  // Granular lead selection state
+  const [groupContacts, setGroupContacts] = useState([]);
+  const [selectedContactIds, setSelectedContactIds] = useState(new Set());
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [contactSearch, setContactSearch] = useState('');
+  const [showContactSelectorModal, setShowContactSelectorModal] = useState(false);
+
+  const loadRecipientContacts = async (groupVal) => {
+    if (!groupVal) {
+      setGroupContacts([]);
+      setSelectedContactIds(new Set());
+      return;
+    }
+    setLoadingContacts(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/marketing/recipient-contacts?recipient_group=${groupVal}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.contacts) {
+        setGroupContacts(data.contacts);
+        setSelectedContactIds(new Set(data.contacts.map(c => c.id)));
+      } else {
+        setGroupContacts([]);
+        setSelectedContactIds(new Set());
+      }
+    } catch {
+      setGroupContacts([]);
+      setSelectedContactIds(new Set());
+    } finally {
+      setLoadingContacts(false);
+    }
+  };
+
+  useEffect(() => {
+    if (waRecipientGroup) loadRecipientContacts(waRecipientGroup);
+  }, [waRecipientGroup]);
+
+  useEffect(() => {
+    if (emailRecipientGroup) loadRecipientContacts(emailRecipientGroup);
+  }, [emailRecipientGroup]);
+
   // Admin sub-tab
   const [adminSubTab, setAdminSubTab] = useState('datasets');
   const [adminViolations, setAdminViolations] = useState([]);
   const loadAdminViolations = () => {
+    if (!token) return;
     fetch(`${API_BASE}/api/admin/violations`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(r => r.json())
-      .then(d => setAdminViolations(Array.isArray(d) ? d : []))
-      .catch(e => console.error(e));
+      .then(d => {
+        if (Array.isArray(d)) {
+          setAdminViolations(d);
+        } else {
+          console.error('[VIOLATIONS FETCH ERROR]', d);
+          setAdminViolations([]);
+        }
+      })
+      .catch(e => console.error('[VIOLATIONS NETWORK ERROR]', e));
   };
-  
-  const handleBanUser = async (userId, banIp, ipAddress, currentBanStatus) => {
-    const isBanning = currentBanStatus !== 1;
-    if(!window.confirm(`Are you sure you want to ${isBanning ? 'BAN' : 'UNBAN'} this user?`)) return;
+
+  const handleSeedSecurityLog = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/admin/users/${userId}/ban`, {
+      const res = await fetch(`${API_BASE}/api/admin/violations/seed-test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ 
-          is_banned: isBanning ? 1 : 0, 
-          warning_message: "Your account has been suspended for violating security policies.", 
-          ban_ip: banIp, 
-          ip_address: ipAddress || "" 
-        })
+        headers: { 'Authorization': `Bearer ${token}` }
       });
-      if(res.ok) {
-        showToast(isBanning ? 'User has been banned.' : 'User has been unbanned.', 'success');
-        loadAdminUsers();
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Sample security violation logs inserted.', 'success');
+        loadAdminViolations();
       }
-    } catch(e) {
-      showToast('Error updating ban status', 'error');
+    } catch {
+      showToast('Error seeding security logs.', 'error');
     }
   };
 
-  const handleUpdateUserRole = async (userId, newRole) => {
-    if (!window.confirm(`Are you sure you want to change this user's role to ${newRole.toUpperCase()}?`)) return;
-    try {
-      const res = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ role: newRole })
-      });
-      if (res.ok) {
-        showToast(`User role updated to ${newRole}!`, 'success');
-        loadAdminUsers();
-      } else {
-        showToast('Failed to update role.', 'error');
+  const handleBanUser = async (userId, banIp, ipAddress, currentBanStatus) => {
+    const isBanning = currentBanStatus !== 1;
+    showConfirm(
+      `Are you sure you want to ${isBanning ? 'BAN' : 'UNBAN'} user #${userId}?`,
+      async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/admin/users/${userId}/ban`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+              is_banned: isBanning ? 1 : 0,
+              warning_message: "Your account has been suspended for violating security policies.",
+              ban_ip: banIp,
+              ip_address: ipAddress || ""
+            })
+          });
+          if (res.ok) {
+            showToast(isBanning ? 'User has been banned.' : 'User has been unbanned.', 'success');
+            loadAdminUsers();
+            if (typeof loadAdminViolations === 'function') loadAdminViolations();
+          }
+        } catch (e) {
+          showToast('Error updating ban status', 'error');
+        }
       }
-    } catch {
-      showToast('Error updating role.', 'error');
+    );
+  };
+
+  const handleUnregisterUser = async (userId, userEmail) => {
+    if (user && user.id === userId) {
+      showToast('You cannot unregister your own active admin account.', 'error');
+      return;
     }
+    showConfirm(
+      `⚠️ CRITICAL WARNING: Are you sure you want to PERMANENTLY UNREGISTER user #${userId} (${userEmail})?\n\nThis will HARD DELETE the user account and all associated data permanently from the database!`,
+      async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (res.ok && data.success) {
+            showToast(`User #${userId} (${userEmail}) permanently deleted from database.`, 'success');
+            loadAdminUsers();
+            if (typeof loadAdminViolations === 'function') loadAdminViolations();
+          } else {
+            showToast(data.detail || 'Failed to unregister user.', 'error');
+          }
+        } catch {
+          showToast('Error unregistering user.', 'error');
+        }
+      }
+    );
+  };
+
+  const openWarningModal = (userId, userEmail, currentWarning) => {
+    setWarningModalTarget({ userId, userEmail });
+    setWarningMsgInput(currentWarning || '');
+    setWarningType('Important Information');
+  };
+
+  const handleUpdateUserRole = async (userId, newRole) => {
+    showConfirm(
+      `Are you sure you want to change this user's role to ${newRole.toUpperCase()}?`,
+      async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ role: newRole })
+          });
+          if (res.ok) {
+            showToast(`User role updated to ${newRole}!`, 'success');
+            loadAdminUsers();
+          } else {
+            showToast('Failed to update role.', 'error');
+          }
+        } catch {
+          showToast('Error updating user role.', 'error');
+        }
+      }
+    );
   };
 
   const handleQuickAddCredits = async (userId, userEmail, currentCredits) => {
@@ -426,11 +711,20 @@ Please return ONLY the updated template text.`;
       checkWhatsAppStatus();
       loadCampaigns();
       loadDashboardStats();
-      if (user.role === 'admin') {
+      if (user && (user.role === 'admin' || user.role === 'superadmin')) {
         loadAdminUsers();
+        loadAdminViolations();
       }
     }
   }, [user]);
+
+  // Auto-reload admin violations when switching to security tab
+  useEffect(() => {
+    if (currentTab === 'security' && user && (user.role === 'admin' || user.role === 'superadmin')) {
+      loadAdminViolations();
+      loadAdminUsers();
+    }
+  }, [currentTab, user]);
 
   // Reload datasets upon catalog filters change
   useEffect(() => {
@@ -459,7 +753,7 @@ Please return ONLY the updated template text.`;
       .replace(/\[OFFER_DESCRIPTION\]/g, paramDescription);
     setEmailPreviewContent(rendered);
   }, [emailHtml, emailPalette, paramCompanyName, paramHeading, paramPromoCode, paramCtaText, paramCtaLink, paramDescription]);
-  
+
   // Auto-refresh dashboard when on dashboard tab
   useEffect(() => {
     if (currentTab === 'marketing' && marketingSubTab === 'dashboard' && user) {
@@ -484,7 +778,7 @@ Please return ONLY the updated template text.`;
           if (data.available) {
             setLiveMapImage(data.image);
           }
-        } catch {}
+        } catch { }
       };
       fetchScreenshot();
       interval = setInterval(fetchScreenshot, 2000);
@@ -503,6 +797,7 @@ Please return ONLY the updated template text.`;
       const data = await res.json();
       setRegionsConfig(data.regions);
       setCategoriesList(data.categories);
+      if (data.contacts) setContactConfig(data.contacts);
     } catch (e) {
       console.error('Failed to load regions configurations', e);
     }
@@ -538,7 +833,7 @@ Please return ONLY the updated template text.`;
       if (finalDist) url += `district=${encodeURIComponent(finalDist)}&`;
       if (finalArea) url += `area=${encodeURIComponent(finalArea)}&`;
       if (datasetListSearch) url += `search=${encodeURIComponent(datasetListSearch)}&`;
-      
+
       const res = await fetch(url);
       const data = await res.json();
       setDatasets(data);
@@ -683,7 +978,7 @@ Please return ONLY the updated template text.`;
       if (res.ok) {
         setScraperJobs(data);
       }
-    } catch {}
+    } catch { }
   };
 
   // WhatsApp status
@@ -697,6 +992,15 @@ Please return ONLY the updated template text.`;
     }
   };
 
+  const startWaStatusPolling = () => {
+    let polls = 0;
+    const pollTimer = setInterval(async () => {
+      polls += 1;
+      await checkWhatsAppStatus();
+      if (polls > 30) clearInterval(pollTimer);
+    }, 3000);
+  };
+
   // Scan WhatsApp session
   const setupWhatsAppSession = async () => {
     try {
@@ -705,9 +1009,30 @@ Please return ONLY the updated template text.`;
       });
       const data = await res.json();
       showToast(data.message, 'info');
+      startWaStatusPolling();
     } catch {
       showToast('Connection failed.', 'error');
     }
+  };
+
+  // Reset WhatsApp session & scan new account
+  const resetWhatsAppSession = async () => {
+    showConfirm(
+      'Are you sure you want to disconnect the current WhatsApp session and connect a new WhatsApp number? This will clear saved session data.',
+      async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/marketing/whatsapp-reset-session`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          showToast(data.message || 'WhatsApp session reset. Please scan the QR code in the browser window.', 'info');
+          startWaStatusPolling();
+        } catch {
+          showToast('Failed to reset WhatsApp session.', 'error');
+        }
+      }
+    );
   };
 
   // Check progress on recipient group select
@@ -736,13 +1061,17 @@ Please return ONLY the updated template text.`;
           }
         );
       }
-    } catch {}
+    } catch { }
   };
 
-  // Trigger WhatsApp dispatch
   const triggerWhatsAppCampaign = async (recipientGroupVal = waRecipientGroup, resume = false) => {
     if (!recipientGroupVal) {
       showToast('Please choose a recipient group first.', 'warning');
+      return;
+    }
+    const selectedList = groupContacts.filter(c => selectedContactIds.has(c.id)).map(c => ({ phone: c.phone, name: c.name }));
+    if (groupContacts.length > 0 && selectedList.length === 0) {
+      showToast('Please select at least 1 contact to send.', 'warning');
       return;
     }
     const resolvedTemplate = waTemplate
@@ -764,7 +1093,8 @@ Please return ONLY the updated template text.`;
           recipient_group: recipientGroupVal,
           message_template: resolvedTemplate,
           resume: resume,
-          start_row: waStartRow > 0 ? waStartRow : null
+          start_row: waStartRow > 0 ? waStartRow : null,
+          selected_contacts: selectedList.length > 0 && selectedList.length < groupContacts.length ? selectedList : null
         })
       });
       const data = await res.json();
@@ -818,7 +1148,7 @@ Please return ONLY the updated template text.`;
           loadCampaigns();
           loadDashboardStats();
         }
-      } catch {}
+      } catch { }
     });
   };
 
@@ -830,9 +1160,9 @@ Please return ONLY the updated template text.`;
       });
       const data = await res.json();
       setCampaignsList(data);
-    } catch {}
+    } catch { }
   };
-  
+
   // Load dashboard stats
   const loadDashboardStats = async () => {
     if (!token) return;
@@ -845,9 +1175,9 @@ Please return ONLY the updated template text.`;
         setDashboardStats(data);
         setCampaignsList(data.campaigns || []);
       }
-    } catch {}
+    } catch { }
   };
-  
+
   // Load log files list
   const loadLogFiles = async () => {
     try {
@@ -856,9 +1186,9 @@ Please return ONLY the updated template text.`;
       });
       const data = await res.json();
       if (res.ok) setLogFilesList(data);
-    } catch {}
+    } catch { }
   };
-  
+
   // Load specific log file content
   const loadLogFileContent = async (date) => {
     setSelectedLogDate(date);
@@ -868,9 +1198,9 @@ Please return ONLY the updated template text.`;
       });
       const data = await res.json();
       if (res.ok) setLogFileContent(data);
-    } catch {}
+    } catch { }
   };
-  
+
   // Load campaign detail logs (for expandable rows)
   const loadCampaignDetailLogs = async (campaignId) => {
     if (expandedCampaignId === campaignId) {
@@ -887,7 +1217,7 @@ Please return ONLY the updated template text.`;
       if (res.ok) {
         setExpandedCampaignLogs(data.logs || []);
       }
-    } catch {}
+    } catch { }
   };
 
   // Email campaign submit
@@ -910,6 +1240,12 @@ Please return ONLY the updated template text.`;
       .replace(/\[CTA_LINK\]/g, paramCtaLink)
       .replace(/\[OFFER_DESCRIPTION\]/g, paramDescription);
 
+    const selectedList = groupContacts.filter(c => selectedContactIds.has(c.id)).map(c => ({ email: c.email, name: c.name }));
+    if (groupContacts.length > 0 && selectedList.length === 0) {
+      showToast('Please select at least 1 contact to send emails to.', 'warning');
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/marketing/send-email`, {
         method: 'POST',
@@ -920,7 +1256,8 @@ Please return ONLY the updated template text.`;
         body: JSON.stringify({
           recipient_group: emailRecipientGroup,
           subject: emailSubject,
-          html_code: resolvedHtml
+          html_code: resolvedHtml,
+          selected_contacts: selectedList.length > 0 && selectedList.length < groupContacts.length ? selectedList : null
         })
       });
       const data = await res.json();
@@ -945,7 +1282,7 @@ Please return ONLY the updated template text.`;
       });
       const data = await res.json();
       setAdminUsers(data);
-    } catch {}
+    } catch { }
   };
 
   // Add credits
@@ -1063,7 +1400,7 @@ Please return ONLY the updated template text.`;
           showToast('Dataset deleted.', 'info');
           loadDatasets();
         }
-      } catch {}
+      } catch { }
     });
   };
 
@@ -1071,6 +1408,7 @@ Please return ONLY the updated template text.`;
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError('');
+    setAuthVerificationNotice('');
     const endpoint = authView === 'login' ? 'login' : 'register';
     const body = authView === 'login'
       ? { email: authEmail, password: authPassword }
@@ -1084,9 +1422,20 @@ Please return ONLY the updated template text.`;
       });
       const data = await res.json();
       if (res.ok) {
-        setToken(data.token);
-        setUser(data.user);
-        setCurrentTab('home');
+        if (authView === 'register') {
+          showToast(data.message || 'Account created! Please check your email for the verification link.', 'success');
+          setAuthVerificationNotice(data.message || 'Account created! Check your email for the activation link.');
+          setAuthView('login');
+        } else {
+          setToken(data.token);
+          setUser(data.user);
+          if (data.user && data.user.role === 'admin') {
+            setCurrentTab('admin');
+            setAdminSubTab('datasets');
+          } else {
+            setCurrentTab('home');
+          }
+        }
       } else {
         setAuthError(data.detail || 'Authentication failed.');
       }
@@ -1095,12 +1444,35 @@ Please return ONLY the updated template text.`;
     }
   };
 
+  const handleResendVerificationLink = async () => {
+    if (!authEmail) {
+      showToast('Please enter your email address first.', 'warning');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || 'Verification link sent to your email address!', 'success');
+        setAuthVerificationNotice(data.message);
+      } else {
+        showToast(data.detail || 'Failed to resend verification link.', 'error');
+      }
+    } catch {
+      showToast('Connection error.', 'error');
+    }
+  };
+
   const handleLogout = () => {
     setToken('');
     setUser(null);
     setCurrentTab('home');
   };
-  
+
   // Helper: get badge class for status
   const getStatusBadge = (status) => {
     const map = {
@@ -1113,131 +1485,991 @@ Please return ONLY the updated template text.`;
     return map[status] || 'badge';
   };
 
-  return (
-    <div className="app-container">
-      {/* ── Sidebar ── */}
-      <aside className="sidebar">
-        <div className="sidebar-header brand" style={{ cursor: 'pointer' }} onClick={() => setCurrentTab('home')}>
-          <BarChart3 size={18} style={{ color: '#06b6d4' }} /> DATABAZAAR
-        </div>
-        
-        <div className="sidebar-menu">
-          <div className="sidebar-section-title">Main</div>
-          <div className={`sidebar-item ${currentTab === 'home' || currentTab === 'catalog' ? 'active' : ''}`} onClick={() => { setCurrentTab('catalog'); setSelectedDatasetId(null); }}>
-            <Database size={16} /> Datasets
+  // Helper renderer for legal modal
+  const renderLegalModal = () => {
+    if (!showLegalModal) return null;
+    return (
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
+        <div className="card glowing-panel" style={{ width: '100%', maxWidth: '650px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '15px' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fff' }}>
+              <Shield size={20} style={{ color: '#06b6d4' }} /> {showLegalModal === 'privacy' ? 'Privacy Policy' : 'Terms of Service'}
+            </h3>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowLegalModal(null)}><X size={16} /></button>
           </div>
-          {user && (
-            <>
-              <div className={`sidebar-item ${currentTab === 'scraper' ? 'active' : ''}`} onClick={() => setCurrentTab('scraper')}>
-                <Search size={16} /> Custom Scraper
-              </div>
-              <div className={`sidebar-item ${currentTab === 'marketing' ? 'active' : ''}`} onClick={() => setCurrentTab('marketing')}>
-                <Send size={16} /> Marketing Portal
-              </div>
-            </>
-          )}
 
-          {user && user.role === 'admin' && (
-            <>
-              <div className="sidebar-section-title">Administration</div>
-              <div className={`sidebar-item ${currentTab === 'admin' ? 'active' : ''}`} onClick={() => { setCurrentTab('admin'); setAdminSubTab('datasets'); }}>
-                <Settings size={16} /> Admin Panel
-              </div>
-              <div className={`sidebar-item ${currentTab === 'users' ? 'active' : ''}`} onClick={() => { setCurrentTab('users'); loadAdminUsers(); }}>
-                <User size={16} /> Customers & Credits
-              </div>
-              <div className={`sidebar-item danger ${currentTab === 'security' ? 'active' : ''}`} onClick={() => { setCurrentTab('security'); loadAdminViolations(); loadAdminUsers(); }}>
-                <Shield size={16} /> Security Module
-              </div>
-            </>
-          )}
-          
-          {!user && (
-            <div className={`sidebar-item ${currentTab === 'auth' ? 'active' : ''}`} onClick={() => setCurrentTab('auth')} style={{ marginTop: '20px' }}>
-              <User size={16} /> Login / Register
+          {showLegalModal === 'privacy' ? (
+            <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+              <p style={{ marginBottom: '12px' }}><strong>1. Data Protection:</strong> MarketingOstad respects user privacy. User emails and registration details are securely managed.</p>
+              <p style={{ marginBottom: '12px' }}><strong>2. Anti-Scraping Security:</strong> Browsing patterns and screenshot key combinations are logged strictly for security enforcement and anti-piracy protection.</p>
+              <p style={{ marginBottom: '12px' }}><strong>3. Third-party Sharing:</strong> We never sell user credential data to third-party advertisers.</p>
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
+              <p style={{ marginBottom: '12px' }}><strong>1. Terms of Use:</strong> Users must verify their email link before accessing the platform. Misuse of scraped data is strictly prohibited.</p>
+              <p style={{ marginBottom: '12px' }}><strong>2. Credit Policy:</strong> Admin-uploaded default datasets are 0 Credits (FREE). Custom scraper runs and marketing dispatches consume credits based on selected packages.</p>
             </div>
           )}
+
+          <div style={{ marginTop: '24px', textAlign: 'right' }}>
+            <button className="btn btn-primary btn-sm" onClick={() => setShowLegalModal(null)}>Close</button>
+          </div>
         </div>
+      </div>
+    );
+  };
 
-        {user && (
-          <div className="sidebar-footer">
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px', wordBreak: 'break-all' }}>
-              <User size={12} style={{ display: 'inline', opacity: 0.8, marginRight: '4px' }} /> {user.email}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem' }}>
-                <Coins size={14} style={{ color: '#eab308', verticalAlign: 'middle', marginRight: '4px' }} /> <strong className="digital-text">{user.credits}</strong> cr
-              </span>
-              <button className="btn btn-secondary btn-sm" onClick={handleLogout} title="Logout">
-                <LogOut size={13} />
+  const renderWarningModal = () => {
+    if (!warningModalTarget) return null;
+
+    const handleSaveWarning = async (messageToSave) => {
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/users/${warningModalTarget.userId}/warning`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ warning_message: messageToSave })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(messageToSave ? `Application warning issued to ${warningModalTarget.userEmail}!` : `Warning cleared for ${warningModalTarget.userEmail}.`, 'success');
+          loadAdminUsers();
+          setWarningModalTarget(null);
+        } else {
+          showToast(data.detail || 'Failed to update warning message.', 'error');
+        }
+      } catch {
+        showToast('Network error updating warning message.', 'error');
+      }
+    };
+
+    return (
+      <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999999, padding: '20px' }}>
+        <div className="modal-content card" style={{ maxWidth: '580px', width: '92%', border: '1px solid #ffb000', padding: '28px', borderRadius: '12px', background: '#0a0e17' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+            <h3 style={{ color: '#ffb000', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.2rem' }}>
+              <AlertTriangle size={20} /> Issue Application Warning Notice
+            </h3>
+            <button className="btn btn-secondary btn-sm" onClick={() => setWarningModalTarget(null)} style={{ border: 'none', fontSize: '1.2rem', cursor: 'pointer' }}>&times;</button>
+          </div>
+
+          <div style={{ marginBottom: '16px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            Target Customer: <strong style={{ color: '#fff' }}>{warningModalTarget.userEmail}</strong> (ID #{warningModalTarget.userId})
+          </div>
+
+          <div className="form-group" style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '6px', color: '#fff' }}>Warning Notice Category:</label>
+            <select
+              className="form-control"
+              value={warningType}
+              onChange={(e) => setWarningType(e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <option value="Important Information">ℹ️ Important Information / Action Required</option>
+              <option value="Account Audit Warning">⚠️ Account Audit Warning / Security Verification</option>
+              <option value="Billing & Credit Policy">💳 Billing & Credit Policy Notice</option>
+              <option value="Security Alert">🚨 Security Alert / Suspicious Activity Warning</option>
+            </select>
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '6px', color: '#fff' }}>Quick Presets (1-Click Insert):</label>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                onClick={() => setWarningMsgInput(`[${warningType}] Important: Please verify your account information within 24 hours to maintain uninterrupted access.`)}
+              >
+                Insert Verification Notice
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                onClick={() => setWarningMsgInput(`[${warningType}] Account Under Review: Our security team detected unusual API requests. Please contact support.`)}
+              >
+                Insert Security Review Notice
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+                onClick={() => setWarningMsgInput(`[${warningType}] Low Balance Alert: Your credits balance is low. Re-charge now to avoid scraper interruption.`)}
+              >
+                Insert Low Balance Alert
               </button>
             </div>
           </div>
-        )}
-      </aside>
 
-      {/* ── Main Content Area ── */}
-      <main className="main-content">
-      <div className="container" style={{ padding: '40px 0' }}>
-        
-        {/* ══ TAB: HOME ══ */}
-        {currentTab === 'home' && (
-          <div>
-            <div style={{ textAlign: 'center', padding: '60px 0' }}>
-              <h1 style={{ fontSize: '2.5rem', marginBottom: '20px' }}>
-                Verified Leads Marketplace & <span className="digital-text">Scraper v2</span>
-              </h1>
-              <p style={{ color: 'var(--text-secondary)', maxWidth: '600px', margin: '0 auto 40px auto' }}>
-                Premium data catalog covering Pharmacy, Medicine shops, Coaching centers, Restaurants, and key local channels in Bangladesh.
+          <div className="form-group" style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '6px', color: '#fff' }}>Custom Warning Message Text:</label>
+            <textarea
+              className="form-control"
+              rows="4"
+              value={warningMsgInput}
+              onChange={(e) => setWarningMsgInput(e.target.value)}
+              placeholder="Type custom application warning message for this user's dashboard..."
+              style={{ width: '100%' }}
+            ></textarea>
+          </div>
+
+          {/* Live Preview of Dashboard Warning */}
+          <div style={{ marginBottom: '24px', background: 'rgba(255, 176, 0, 0.08)', border: '1px dashed #ffb000', borderRadius: '8px', padding: '14px' }}>
+            <div style={{ fontSize: '0.75rem', color: '#ffb000', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '6px' }}>
+              User Dashboard Live Preview:
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <AlertTriangle size={18} style={{ color: '#ffb000', flexShrink: 0 }} />
+              <div style={{ fontSize: '0.85rem', color: '#e2e8f0' }}>
+                <strong>⚠️ {warningType}:</strong> {warningMsgInput || '(No warning text entered)'}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+            <button
+              className="btn btn-danger btn-sm"
+              style={{ background: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444' }}
+              onClick={() => handleSaveWarning('')}
+            >
+              🗑️ Clear Active Warning
+            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setWarningModalTarget(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                style={{ background: '#ffb000', borderColor: '#ffb000', color: '#000' }}
+                onClick={() => handleSaveWarning(warningMsgInput.trim())}
+              >
+                💾 Issue Warning Notice
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderContactSelectorModal = () => {
+    if (!showContactSelectorModal) return null;
+
+    const filteredContacts = groupContacts.filter(c => 
+      !contactSearch || 
+      c.name.toLowerCase().includes(contactSearch.toLowerCase()) || 
+      c.phone.includes(contactSearch) || 
+      c.email.toLowerCase().includes(contactSearch.toLowerCase()) ||
+      c.area.toLowerCase().includes(contactSearch.toLowerCase())
+    );
+
+    return (
+      <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999999, padding: '20px' }}>
+        <div className="modal-content card" style={{ maxWidth: '850px', width: '95%', maxHeight: '88vh', border: '1px solid #06b6d4', padding: '24px', borderRadius: '12px', background: '#090d16', display: 'flex', flexDirection: 'column' }}>
+          
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+            <div>
+              <h3 style={{ color: '#06b6d4', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.2rem' }}>
+                <User size={20} /> Granular Target Lead Selector & Inspector
+              </h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                Select exact contacts to receive your message dispatch. You can choose 1, 2, or specific leads.
               </p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '20px' }}>
-                <button className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }} onClick={() => setCurrentTab('catalog')}>
-                  <Database size={16} /> Browse Database
-                </button>
-                {user ? (
-                  <button className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }} onClick={() => setCurrentTab('scraper')}>
-                    <Search size={16} /> Run Scraper
-                  </button>
-                ) : (
-                  <button className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }} onClick={() => setCurrentTab('auth')}>
-                    <User size={16} /> Get Started
-                  </button>
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowContactSelectorModal(false)} style={{ border: 'none', fontSize: '1.4rem', cursor: 'pointer', padding: '0 8px' }}>&times;</button>
+          </div>
+
+          {/* Search & Bulk Action Toolbar */}
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <input
+                type="text"
+                className="form-control"
+                style={{ paddingLeft: '32px', fontSize: '0.85rem', width: '100%' }}
+                placeholder="🔍 Search contacts by name, phone, email, or location..."
+                value={contactSearch}
+                onChange={(e) => setContactSearch(e.target.value)}
+              />
+              <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
+            </div>
+            
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSelectedContactIds(new Set(groupContacts.map(c => c.id)))}
+              >
+                ✓ Select All ({groupContacts.length})
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSelectedContactIds(new Set())}
+              >
+                ✕ Deselect All
+              </button>
+            </div>
+          </div>
+
+          {/* Counter Status Pill */}
+          <div style={{ background: 'rgba(6, 182, 212, 0.1)', padding: '8px 14px', borderRadius: '6px', border: '1px solid rgba(6, 182, 212, 0.3)', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
+            <span>
+              Target Selection: <strong style={{ color: '#06b6d4' }}>{selectedContactIds.size}</strong> out of <strong style={{ color: '#fff' }}>{groupContacts.length}</strong> contacts selected
+            </span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              {selectedContactIds.size === groupContacts.length ? 'Entire List Selected' : 'Custom Subset Selected'}
+            </span>
+          </div>
+
+          {/* Contacts Table Container */}
+          <div style={{ flex: 1, overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px', background: 'rgba(0,0,0,0.3)', marginBottom: '16px' }}>
+            <table className="admin-table" style={{ margin: 0 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: '40px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={groupContacts.length > 0 && selectedContactIds.size === groupContacts.length}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedContactIds(new Set(groupContacts.map(c => c.id)));
+                        else setSelectedContactIds(new Set());
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
+                  <th>Row #</th>
+                  <th>Contact Name</th>
+                  <th>Phone / Email</th>
+                  <th>Location / District</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredContacts.map((c) => {
+                  const isChecked = selectedContactIds.has(c.id);
+                  return (
+                    <tr
+                      key={c.id}
+                      onClick={() => {
+                        const next = new Set(selectedContactIds);
+                        if (next.has(c.id)) next.delete(c.id);
+                        else next.add(c.id);
+                        setSelectedContactIds(next);
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        background: isChecked ? 'rgba(6, 182, 212, 0.08)' : 'transparent'
+                      }}
+                    >
+                      <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            const next = new Set(selectedContactIds);
+                            if (next.has(c.id)) next.delete(c.id);
+                            else next.add(c.id);
+                            setSelectedContactIds(next);
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </td>
+                      <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>#{c.id + 1}</td>
+                      <td><strong style={{ color: isChecked ? '#fff' : 'var(--text-secondary)' }}>{c.name}</strong></td>
+                      <td className="digital-text" style={{ fontSize: '0.85rem' }}>
+                        {c.phone ? c.phone.replace(/\.0$/, '').replace(/^\+?88001/, '+8801').replace(/^88001/, '+8801') : (c.email || 'N/A')}
+                      </td>
+                      <td style={{ fontSize: '0.8rem' }}>{c.area || 'BD'}</td>
+                      <td>
+                        {isChecked ? (
+                          <span style={{ color: '#22c55e', fontSize: '0.75rem', fontWeight: 'bold' }}>✓ SELECTED</span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>EXCLUDED</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredContacts.length === 0 && (
+                  <tr>
+                    <td colSpan="6" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                      No contacts matched your search query.
+                    </td>
+                  </tr>
                 )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer Action Controls */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button className="btn btn-secondary" onClick={() => setShowContactSelectorModal(false)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={() => setShowContactSelectorModal(false)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <CheckCircle2 size={16} /> Confirm Selection ({selectedContactIds.size} Contacts)
+            </button>
+          </div>
+
+        </div>
+      </div>
+    );
+  };
+
+  const renderFooter = () => (
+    <footer className="app-footer">
+      <div className="container">
+        <div className="footer-grid">
+          <div className="footer-col">
+            <div className="brand" style={{ marginBottom: '16px', fontSize: '1.3rem' }}>
+              <BarChart3 size={24} style={{ color: '#06b6d4' }} /> MARKETING OSTAD
+            </div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '1.6', maxWidth: '320px' }}>
+              Bangladesh's premier verified lead marketplace, real-time Google Maps scraper, and automated WhatsApp/Email campaign engine.
+            </p>
+            <div style={{ marginTop: '16px' }}>
+              <span style={{ color: 'var(--text-neon)', fontSize: '0.75rem', background: 'rgba(57, 255, 20, 0.1)', padding: '4px 10px', borderRadius: '4px', border: '1px solid rgba(57, 255, 20, 0.3)' }}>
+                ● System Active & Online
+              </span>
+            </div>
+          </div>
+
+          <div className="footer-col">
+            <h5>Data Categories</h5>
+            <ul className="footer-links">
+              <li><a onClick={() => { setCurrentTab('catalog'); setSelectedDatasetId(null); setDatasetFilterCat('Coaching Center'); }}>Coaching Centers</a></li>
+              <li><a onClick={() => { setCurrentTab('catalog'); setSelectedDatasetId(null); setDatasetFilterCat('Pharmacy'); }}>Pharmacies</a></li>
+              <li><a onClick={() => { setCurrentTab('catalog'); setSelectedDatasetId(null); setDatasetFilterCat('Restaurant'); }}>Restaurants</a></li>
+              <li><a onClick={() => { setCurrentTab('catalog'); setSelectedDatasetId(null); setDatasetFilterCat('Hospital & Clinic'); }}>Hospitals & Clinics</a></li>
+              <li><a onClick={() => { setCurrentTab('catalog'); setSelectedDatasetId(null); setDatasetFilterCat('School & College'); }}>Schools & Colleges</a></li>
+            </ul>
+          </div>
+
+          <div className="footer-col">
+            <h5>Pricing (BDT ৳)</h5>
+            <ul className="footer-links">
+              <li><a onClick={() => { setCurrentTab('home'); setTimeout(() => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' }), 100); }}>Starter Pack (৳200/mo)</a></li>
+              <li><a onClick={() => { setCurrentTab('home'); setTimeout(() => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' }), 100); }}>Growth Pack (৳500/mo)</a></li>
+              <li><a onClick={() => { setCurrentTab('home'); setTimeout(() => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' }), 100); }}>Credit Packs (from ৳50)</a></li>
+              <li><a onClick={() => { setCurrentTab('home'); setTimeout(() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' }), 100); }}>Enterprise ERP Pack</a></li>
+            </ul>
+          </div>
+
+          <div className="footer-col">
+            <h5>Support & Legal</h5>
+            <ul className="footer-links">
+              <li><a onClick={() => setShowLegalModal('privacy')}>Privacy Policy</a></li>
+              <li><a onClick={() => setShowLegalModal('terms')}>Terms of Service</a></li>
+              <li><a onClick={() => { setCurrentTab('home'); setTimeout(() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' }), 100); }}>Contact Sales</a></li>
+              <li><a onClick={() => setCurrentTab('auth')}>Login / Register</a></li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="footer-bottom">
+          <div>{t.footer.rights}</div>
+          <div>{t.footer.designSystem}</div>
+        </div>
+      </div>
+    </footer>
+  );
+
+  const isSidebarLayout = !!user;
+
+  return (
+    <>
+      {isSidebarLayout ? (
+        /* ── LOGGED IN USER LAYOUT (LEFT PANEL SIDEBAR) ── */
+        <div className="app-container">
+          <aside className="sidebar">
+            <div className="sidebar-header brand" style={{ cursor: 'pointer' }} onClick={() => setCurrentTab('catalog')}>
+              <BarChart3 size={18} style={{ color: '#06b6d4' }} /> MARKETING OSTAD 
+              {user.role === 'superadmin' && <span style={{ fontSize: '0.65rem', background: '#a855f7', color: '#fff', padding: '2px 6px', borderRadius: '4px', marginLeft: '4px', fontWeight: 'bold' }}>SUPERADMIN</span>}
+              {user.role === 'admin' && <span style={{ fontSize: '0.65rem', background: '#ef4444', color: '#fff', padding: '2px 6px', borderRadius: '4px', marginLeft: '4px' }}>ADMIN</span>}
+            </div>
+
+            <div className="sidebar-menu">
+              {(user.role === 'admin' || user.role === 'superadmin') && (
+                <>
+                  <div className="sidebar-section-title">Administration</div>
+                  <div className={`sidebar-item ${currentTab === 'admin' ? 'active' : ''}`} onClick={() => { setCurrentTab('admin'); setAdminSubTab('datasets'); }}>
+                    <Settings size={16} /> Admin Panel
+                  </div>
+                  <div className={`sidebar-item ${currentTab === 'users' ? 'active' : ''}`} onClick={() => { setCurrentTab('users'); loadAdminUsers(); }}>
+                    <User size={16} /> Customers & Credits
+                  </div>
+                  <div className={`sidebar-item danger ${currentTab === 'security' ? 'active' : ''}`} onClick={() => { setCurrentTab('security'); loadAdminViolations(); loadAdminUsers(); }}>
+                    <Shield size={16} /> Security Module
+                  </div>
+                </>
+              )}
+
+              <div className="sidebar-section-title">Main Navigation</div>
+              <div className={`sidebar-item ${currentTab === 'catalog' ? 'active' : ''}`} onClick={() => { setCurrentTab('catalog'); setSelectedDatasetId(null); }}>
+                <Database size={16} /> Datasets Catalog
+              </div>
+              <div className={`sidebar-item ${currentTab === 'scraper' ? 'active' : ''}`} onClick={() => { setCurrentTab('scraper'); }}>
+                <Search size={16} /> Custom Scraper
+              </div>
+              <div className={`sidebar-item ${currentTab === 'marketing' ? 'active' : ''}`} onClick={() => { setCurrentTab('marketing'); }}>
+                <Send size={16} /> Marketing Portal
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '30px', marginTop: '40px' }}>
-              <div className="card glowing-panel">
-                <h4 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Lock size={16} style={{ color: '#ec4899' }} /> Protected Lead Previews
+            <div className="sidebar-footer">
+              <div style={{ marginBottom: '12px' }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ width: '100%', fontSize: '0.8rem', padding: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', border: '1px solid rgba(6, 182, 212, 0.4)', background: 'rgba(6, 182, 212, 0.1)', color: '#38bdf8' }}
+                  onClick={() => {
+                    const nextLang = lang === 'en' ? 'bn' : 'en';
+                    setLang(nextLang);
+                    localStorage.setItem('lang', nextLang);
+                  }}
+                >
+                  <Globe size={14} /> {lang === 'en' ? '🇧🇩 বাংলা ভাষা' : '🇺🇸 English'}
+                </button>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px', wordBreak: 'break-all' }}>
+                <User size={12} style={{ display: 'inline', opacity: 0.8, marginRight: '4px' }} /> {user.email}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem' }}>
+                  <Coins size={14} style={{ color: '#eab308', verticalAlign: 'middle', marginRight: '4px' }} /> <strong className="digital-text">{user.credits}</strong> cr
+                </span>
+                <button className="btn btn-secondary btn-sm" onClick={handleLogout} title="Logout">
+                  <LogOut size={13} />
+                </button>
+              </div>
+            </div>
+          </aside>
+
+          <main className="main-content">
+            <div className="container" style={{ padding: '40px 0' }}>
+              {/* APPLICATION-LEVEL ADMIN WARNING BANNER FOR LOGGED IN USER */}
+              {user && user.warning_message && (
+                <div style={{
+                  background: 'rgba(255, 176, 0, 0.12)',
+                  border: '1px solid #ffb000',
+                  borderRadius: '8px',
+                  padding: '16px 20px',
+                  marginBottom: '28px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '14px',
+                  boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
+                }}>
+                  <AlertTriangle size={24} style={{ color: '#ffb000', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontWeight: 'bold', color: '#ffb000', fontSize: '0.95rem' }}>
+                      ⚠️ Notice from System Administrator
+                    </div>
+                    <div style={{ color: '#e2e8f0', fontSize: '0.85rem', marginTop: '4px' }}>
+                      {user.warning_message}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {renderMainViews()}
+            </div>
+          </main>
+        </div>
+      ) : (
+        /* ── GUEST / VISITOR LAYOUT (TOP NAVBAR ACROSS TOP) ── */
+        <div className="user-layout">
+          <header className="top-navbar">
+            <div className="top-nav-container">
+              <div className="top-nav-logo" onClick={() => setCurrentTab('home')}>
+                <BarChart3 size={22} style={{ color: '#06b6d4' }} /> MARKETING OSTAD
+              </div>
+
+              <nav className="top-nav-menu">
+                <div className={`top-nav-item ${currentTab === 'home' ? 'active' : ''}`} onClick={() => setCurrentTab('home')}>
+                  {t.nav.home}
+                </div>
+                <div className={`top-nav-item ${currentTab === 'catalog' ? 'active' : ''}`} onClick={() => { setCurrentTab('catalog'); setSelectedDatasetId(null); }}>
+                  <Database size={14} /> {t.nav.datasets}
+                </div>
+                <div className="top-nav-item" onClick={() => { setCurrentTab('home'); setTimeout(() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' }), 100); }}>
+                  {t.nav.features}
+                </div>
+                <div className="top-nav-item" onClick={() => { setCurrentTab('home'); setTimeout(() => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' }), 100); }}>
+                  {t.nav.pricing}
+                </div>
+                <div className="top-nav-item" onClick={() => { setCurrentTab('home'); setTimeout(() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' }), 100); }}>
+                  {t.nav.contact}
+                </div>
+              </nav>
+
+              <div className="top-nav-actions" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: '0.8rem', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', border: '1px solid rgba(6, 182, 212, 0.4)', background: 'rgba(6, 182, 212, 0.1)', color: '#38bdf8' }}
+                  onClick={() => {
+                    const nextLang = lang === 'en' ? 'bn' : 'en';
+                    setLang(nextLang);
+                    localStorage.setItem('lang', nextLang);
+                  }}
+                >
+                  <Globe size={14} /> {lang === 'en' ? '🇧🇩 বাংলা' : '🇺🇸 English'}
+                </button>
+                <button className="btn btn-primary" style={{ fontSize: '0.85rem', padding: '8px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px' }} onClick={() => setCurrentTab('auth')}>
+                  <User size={14} /> {t.nav.loginRegister}
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="user-main-content">
+            <div className="container" style={{ padding: '40px 0' }}>
+              {renderMainViews()}
+            </div>
+            {renderFooter()}
+          </main>
+        </div>
+      )}
+
+      {/* Floating Toast Notification Panel */}
+      <div className="toast-container">
+        {toasts.map(t => (
+          <div key={t.id} className={`toast toast-${t.type}`} style={{ paddingBottom: t.onConfirm ? '18px' : '14px' }}>
+            <span className="toast-icon" style={{ alignSelf: t.onConfirm ? 'flex-start' : 'center', marginTop: t.onConfirm ? '2px' : '0' }}>
+              {t.type === 'success' ? '✅' : t.type === 'error' ? '❌' : t.type === 'warning' ? '⚠️' : 'ℹ️'}
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: '1' }}>
+              <span className="toast-msg">{t.message}</span>
+              {t.onConfirm && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: '4px 10px', fontSize: '0.75rem', marginTop: '2px', background: 'var(--text-amber)', borderColor: 'var(--text-amber)', color: '#000000' }}
+                    onClick={() => {
+                      t.onConfirm();
+                      setToasts(prev => prev.filter(x => x.id !== t.id));
+                    }}
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: '4px 10px', fontSize: '0.75rem', marginTop: '2px' }}
+                    onClick={() => {
+                      if (t.onCancel) t.onCancel();
+                      setToasts(prev => prev.filter(x => x.id !== t.id));
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+            <button className="toast-close" style={{ alignSelf: t.onConfirm ? 'flex-start' : 'center' }} onClick={() => {
+              if (t.onCancel) t.onCancel();
+              setToasts(prev => prev.filter(x => x.id !== t.id));
+            }}>&times;</button>
+            {!t.onConfirm && <div className="toast-progress"></div>}
+          </div>
+        ))}
+      </div>
+
+      {renderLegalModal()}
+      {renderWarningModal()}
+      {renderContactSelectorModal()}
+
+      {/* 🚨 URGENT SCREENSHOT SECURITY VIOLATION ALERT MODAL */}
+      {securityAlertModal && (
+        <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.92)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999999, padding: '20px' }}>
+          <div className="modal-content card" style={{ maxWidth: '520px', width: '92%', border: '2px solid #ef4444', padding: '32px 28px', borderRadius: '16px', background: '#0f0707', boxShadow: '0 0 40px rgba(239, 68, 68, 0.4)', textAlign: 'center' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.15)', border: '2px solid #ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto' }}>
+              <ShieldAlert size={36} style={{ color: '#ef4444' }} />
+            </div>
+
+            <h2 style={{ color: '#ef4444', margin: '0 0 10px 0', fontSize: '1.4rem', letterSpacing: '0.5px' }}>
+              🚨 SECURITY VIOLATION ALERT
+            </h2>
+
+            <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', padding: '12px', marginBottom: '20px', fontSize: '0.85rem', color: '#fca5a5' }}>
+              <strong>Screenshot Attempt Intercepted:</strong>
+              <br />
+              <span style={{ color: '#fff', fontWeight: 'bold' }}>{securityAlertModal.violationType}</span> at {securityAlertModal.time}
+            </div>
+
+            <p style={{ color: '#e2e8f0', fontSize: '0.9rem', lineHeight: '1.6', marginBottom: '24px' }}>
+              Your IP address, browser fingerprint, and session details have been recorded and logged to the <strong>Security Control Module</strong>. Scraping or capturing proprietary leads data is strictly monitored. Continued attempts will result in automatic IP banning and account suspension.
+            </p>
+
+            <button
+              className="btn btn-danger btn-sm"
+              style={{ width: '100%', padding: '12px', fontSize: '0.95rem', color: "white", fontWeight: 'bold', background: '#ef4444', borderColor: '#ef4444', cursor: 'pointer' }}
+              onClick={() => setSecurityAlertModal(null)}
+            >
+              I Understand & Acknowledge Warning
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  // Core view router component
+  function renderMainViews() {
+    return (
+      <>
+        {/* ══ TAB: HOME ══ */}
+        {currentTab === 'home' && (
+          <div>
+            {/* HERO SECTION */}
+            <div className="hero-section">
+              <div className="hero-grid">
+                <div>
+                  <div className="hero-badge-pill">
+                    <Zap size={14} /> {t.hero.badge}
+                  </div>
+                  <h1 className="hero-title">
+                    {t.hero.titlePrefix}<span className="digital-text">{t.hero.titleHighlight}</span>{t.hero.titleSuffix}
+                  </h1>
+                  <p className="hero-subtitle">
+                    {t.hero.subtitle}
+                  </p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                    <button className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px' }} onClick={() => setCurrentTab('catalog')}>
+                      <Database size={18} /> {t.hero.btnDatasets}
+                    </button>
+                    {user ? (
+                      <button className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px' }} onClick={() => setCurrentTab('scraper')}>
+                        <Search size={18} /> {t.hero.btnScraper}
+                      </button>
+                    ) : (
+                      <button className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px' }} onClick={() => setCurrentTab('auth')}>
+                        <User size={18} /> {t.hero.btnStart}
+                      </button>
+                    )}
+                    <button className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 20px' }} onClick={() => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })}>
+                      <Coins size={16} style={{ color: '#eab308' }} /> {t.hero.btnPricing}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="hero-dashboard-frame">
+                    <img src={heroDashboardImg} alt="MarketingOstad Marketing Dashboard" className="hero-dashboard-img" />
+                    <div style={{ position: 'absolute', top: '24px', right: '24px', background: 'rgba(4, 6, 11, 0.85)', border: '1px solid var(--text-neon)', padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', color: 'var(--text-neon)', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}>
+                      <span className="led-status running"></span> ⚡ {t.hero.statScraper}
+                    </div>
+                    <div style={{ position: 'absolute', bottom: '24px', left: '24px', background: 'rgba(4, 6, 11, 0.85)', border: '1px solid var(--accent-blue)', padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', color: 'var(--accent-blue)', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}>
+                      <CheckCircle2 size={14} /> {t.hero.statAccuracy}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* CARD-BASED FEATURES SECTION */}
+            <div id="features" style={{ paddingTop: '60px', marginTop: '40px', borderTop: '1px solid var(--border-subtle)' }}>
+              <div style={{ textAlign: 'center', maxWidth: '700px', margin: '0 auto 40px auto' }}>
+                <span className="pricing-bdt-badge" style={{ marginBottom: '10px' }}>{t.features.badge}</span>
+                <h2 style={{ fontSize: '2rem', marginBottom: '12px', marginTop: '8px' }}>
+                  {t.features.title}
+                </h2>
+              </div>
+
+              <div className="feature-cards-grid">
+                <div className="feature-card">
+                  <div className="feature-card-icon">
+                    <Search size={24} />
+                  </div>
+                  <div>
+                    <h4 className="feature-card-title">{t.features.card1Title}</h4>
+                    <p className="feature-card-desc">
+                      {t.features.card1Desc}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="feature-card neon-accent">
+                  <div className="feature-card-icon">
+                    <Database size={24} />
+                  </div>
+                  <div>
+                    <h4 className="feature-card-title">{t.features.card2Title}</h4>
+                    <p className="feature-card-desc">
+                      {t.features.card2Desc}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="feature-card amber-accent">
+                  <div className="feature-card-icon">
+                    <Send size={24} />
+                  </div>
+                  <div>
+                    <h4 className="feature-card-title">{t.features.card3Title}</h4>
+                    <p className="feature-card-desc">
+                      {t.features.card3Desc}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="feature-card">
+                  <div className="feature-card-icon">
+                    <Mail size={24} />
+                  </div>
+                  <div>
+                    <h4 className="feature-card-title">{t.features.card4Title}</h4>
+                    <p className="feature-card-desc">
+                      {t.features.card4Desc}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* BDT PRICING SECTION */}
+            <div id="pricing" style={{ paddingTop: '80px', marginTop: '60px', borderTop: '1px solid var(--border-subtle)' }}>
+              <div className="pricing-header">
+                <span className="pricing-bdt-badge">{t.pricing.badge}</span>
+                <h2 style={{ fontSize: '2.2rem', marginBottom: '12px', marginTop: '8px' }}>
+                  {t.pricing.title}
+                </h2>
+              </div>
+
+              {/* Monthly Subscription Bundles */}
+              <div className="pricing-grid-3">
+                <div className="pricing-card-bdt">
+                  <div className="pricing-plan-title">{t.pricing.starterTitle}</div>
+                  <div className="pricing-price-bdt">
+                    {t.pricing.starterPrice} <span>{t.pricing.starterPerMonth}</span>
+                  </div>
+                  <ul className="pricing-features-list">
+                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.starterFeature1}</strong></li>
+                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.starterFeature2}</strong></li>
+                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.starterFeature3}</strong></li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.starterFeature4}</li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.starterFeature5}</li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.starterFeature6}</li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.starterFeature7}</li>
+                  </ul>
+                  <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setCurrentTab('auth')}>
+                    {t.pricing.btnStarter}
+                  </button>
+                </div>
+
+                <div className="pricing-card-bdt popular">
+                  <span className="popular-ribbon">{t.pricing.growthBadge}</span>
+                  <div className="pricing-plan-title" style={{ color: 'var(--text-neon)' }}>{t.pricing.growthTitle}</div>
+                  <div className="pricing-price-bdt">
+                    {t.pricing.growthPrice} <span>{t.pricing.growthPerMonth}</span>
+                  </div>
+                  <ul className="pricing-features-list">
+                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.growthFeature1}</strong></li>
+                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.growthFeature2}</strong></li>
+                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.growthFeature3}</strong></li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.growthFeature4}</li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.growthFeature5}</li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.growthFeature6}</li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.growthFeature7}</li>
+                  </ul>
+                  <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => setCurrentTab('auth')}>
+                    {t.pricing.btnGrowth}
+                  </button>
+                </div>
+
+                <div className="pricing-card-bdt">
+                  <div className="pricing-plan-title">{t.pricing.enterpriseTitle}</div>
+                  <div className="pricing-price-bdt">
+                    {t.pricing.enterprisePrice}
+                  </div>
+                  <ul className="pricing-features-list">
+                    <li><Check size={16} className="check-icon" /> {t.pricing.enterpriseFeature1}</li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.enterpriseFeature2}</li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.enterpriseFeature3}</li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.enterpriseFeature4}</li>
+                    <li><Check size={16} className="check-icon" /> {t.pricing.enterpriseFeature5}</li>
+                  </ul>
+                  <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}>
+                    {t.pricing.btnEnterprise}
+                  </button>
+                </div>
+              </div>
+
+              {/* Pay-as-you-go Credit Packs */}
+              <div style={{ textAlign: 'center', marginTop: '50px', marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '1.4rem' }}>Pay-As-You-Go Credit Packs</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Need individual credits? Top up anytime in BDT.</p>
+              </div>
+
+              <div className="credit-packs-grid">
+                <div className="credit-pack-card">
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#fff' }}>10 Credits</div>
+                  <div style={{ color: 'var(--text-neon)', fontSize: '1.4rem', fontWeight: 'bold', margin: '8px 0' }}>৳50 BDT</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>৳5.00 / Credit</div>
+                </div>
+
+                <div className="credit-pack-card" style={{ borderColor: 'rgba(57, 255, 20, 0.3)' }}>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#fff' }}>20 Credits</div>
+                  <div style={{ color: 'var(--text-neon)', fontSize: '1.4rem', fontWeight: 'bold', margin: '8px 0' }}>৳90 BDT</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-neon)' }}>৳4.50 / Credit (10% SAVE)</div>
+                </div>
+
+                <div className="credit-pack-card">
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#fff' }}>50 Credits</div>
+                  <div style={{ color: 'var(--text-neon)', fontSize: '1.4rem', fontWeight: 'bold', margin: '8px 0' }}>৳200 BDT</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>৳4.00 / Credit (20% SAVE)</div>
+                </div>
+
+                <div className="credit-pack-card" style={{ border: '1px solid var(--accent-blue)' }}>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#fff' }}>120 Credits</div>
+                  <div style={{ color: 'var(--accent-blue)', fontSize: '1.4rem', fontWeight: 'bold', margin: '8px 0' }}>৳400 BDT</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--accent-blue)' }}>৳3.33 / Credit (33% SAVE)</div>
+                </div>
+              </div>
+
+              {/* Interactive BDT Credit Calculator */}
+              <div className="card glowing-panel" style={{ marginTop: '40px', padding: '30px' }}>
+                <h4 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Coins size={18} style={{ color: '#eab308' }} /> {t.pricing.calcTitle}
                 </h4>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                  Anti-copy headers, selection block filters, mask overlays protect direct scrape lists from redistribution.
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
+                  {t.pricing.calcDesc}
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', alignItems: 'center' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                      {t.pricing.calcSelectLabel} <strong style={{ color: 'var(--text-neon)', fontSize: '1.1rem' }}>{calcCredits} Credits</strong>
+                    </label>
+                    <input
+                      type="range"
+                      min="10"
+                      max="500"
+                      step="10"
+                      value={calcCredits}
+                      onChange={(e) => setCalcCredits(parseInt(e.target.value))}
+                      style={{ width: '100%', accentColor: 'var(--text-neon)' }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      <span>10 CR</span>
+                      <span>250 CR</span>
+                      <span>500 CR</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#020306', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{t.pricing.calcTotalPayable}</div>
+                    <div style={{ fontSize: '2.2rem', fontWeight: '900', color: 'var(--text-neon)', margin: '4px 0' }}>
+                      ৳{calcCredits <= 15 ? calcCredits * 5 : calcCredits <= 40 ? Math.floor(calcCredits * 4.5) : Math.floor(calcCredits * 4)} BDT
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      {t.pricing.calcRateNote}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* CONTACT US SECTION */}
+            <div id="contact" className="contact-section" style={{ borderTop: '1px solid var(--border-subtle)', marginTop: '60px' }}>
+              <div style={{ textAlign: 'center', maxWidth: '700px', margin: '0 auto 40px auto' }}>
+                <h2 style={{ fontSize: '2rem', marginBottom: '12px' }}>
+                  {t.contact.title}
+                </h2>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+                  {t.contact.subtitle}
                 </p>
               </div>
-              <div className="card glowing-panel">
-                <h4 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Activity size={16} style={{ color: '#eab308' }} /> Live Dispatch Campaign Logs
-                </h4>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                  Track active WhatsApp and Email sends with visual LED progress monitors and background console logging.
-                </p>
-              </div>
-              <div className="card glowing-panel">
-                <h4 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Shield size={16} style={{ color: '#10b981' }} /> Humanized Sends Protections
-                </h4>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                  Randomized typewriter loops, cooldown segments, automatic progress checkpoints safeguard session channels.
-                </p>
+
+              <div className="contact-grid">
+                <div className="card glowing-panel">
+                  <h4 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Mail size={18} style={{ color: '#06b6d4' }} /> {t.contact.title}
+                  </h4>
+                  <form onSubmit={handleContactSubmit}>
+                    <div className="form-group">
+                      <label>{t.contact.nameLabel}</label>
+                      <input type="text" className="form-control" value={contactName} onChange={(e) => setContactName(e.target.value)} required placeholder="Your full name" />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div className="form-group">
+                        <label>{t.contact.emailLabel}</label>
+                        <input type="email" className="form-control" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} required placeholder="name@company.com" />
+                      </div>
+                      <div className="form-group">
+                        <label>{t.contact.phoneLabel}</label>
+                        <input type="text" className="form-control" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="+880 1XXXXXXXXX" />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label>{t.contact.subjectLabel}</label>
+                      <input type="text" className="form-control" value={contactSubject} onChange={(e) => setContactSubject(e.target.value)} placeholder="Pricing, ERP Pack, Scraper inquiry..." />
+                    </div>
+                    <div className="form-group">
+                      <label>{t.contact.messageLabel}</label>
+                      <textarea className="form-control" rows="4" value={contactMessage} onChange={(e) => setContactMessage(e.target.value)} required placeholder="Tell us about your lead requirements..."></textarea>
+                    </div>
+                    <button className="btn btn-primary" type="submit" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                      <Send size={16} /> {t.contact.btnSubmit}
+                    </button>
+                  </form>
+                </div>
+
+                <div className="contact-info-box">
+                  <h4 style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Mail size={18} style={{ color: '#10b981' }} /> {t.contact.channelsTitle}
+                  </h4>
+
+                  <div className="contact-item">
+                    <div className="contact-icon">
+                      <Mail size={20} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 'bold', color: '#fff', fontSize: '0.95rem' }}>{t.contact.emailTitle}</div>
+                      <div style={{ color: 'var(--text-neon)', fontSize: '0.85rem', marginTop: '4px' }}>
+                        {SUPPORT_EMAIL}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="contact-item">
+                    <div className="contact-icon">
+                      <Phone size={20} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 'bold', color: '#fff', fontSize: '0.95rem' }}>{t.contact.hotlineTitle}</div>
+                      <a
+                        href={`https://wa.me/${HOTLINE_PHONE.replace(/[^0-9]/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: 'var(--accent-blue)', fontSize: '0.85rem', marginTop: '4px', textDecoration: 'none', display: 'inline-block' }}
+                      >
+                        {HOTLINE_PHONE} <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>{t.contact.clickToChat}</span>
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="contact-item">
+                    <div className="contact-icon">
+                      <Clock size={20} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 'bold', color: '#fff', fontSize: '0.95rem' }}>{t.contact.hoursTitle}</div>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '4px' }}>
+                        {SUPPORT_HOURS}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ══ TAB: AUTH ══ */}
+        {/* ══ TAB: AUTH (WITH EMAIL LINK VERIFICATION NOTICE) ══ */}
         {currentTab === 'auth' && (
-          <div style={{ maxWidth: '400px', margin: '40px auto' }} className="card glowing-panel">
+          <div style={{ maxWidth: '440px', margin: '40px auto' }} className="card glowing-panel">
             <h3 style={{ marginBottom: '20px', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
               {authView === 'login' ? (
                 <>
@@ -1249,35 +2481,57 @@ Please return ONLY the updated template text.`;
                 </>
               )}
             </h3>
-            {authError && (
-              <div style={{ color: 'var(--accent-red)', fontSize: '0.8rem', marginBottom: '16px', background: 'rgba(239, 68, 68, 0.1)', padding: '10px', borderRadius: '4px' }}>
-                {authError}
+
+            {/* Email Verification Banner */}
+            {authVerificationNotice && (
+              <div style={{ color: '#39ff14', fontSize: '0.82rem', marginBottom: '16px', background: 'rgba(57, 255, 20, 0.1)', border: '1px solid rgba(57, 255, 20, 0.3)', padding: '12px', borderRadius: '6px', lineHeight: '1.4' }}>
+                <CheckCircle2 size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
+                {authVerificationNotice}
               </div>
             )}
+
+            {authError && (
+              <div style={{ color: 'var(--accent-red)', fontSize: '0.82rem', marginBottom: '16px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '12px', borderRadius: '6px' }}>
+                <AlertTriangle size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
+                {authError}
+                {authError.includes('Email address not verified') && (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ width: '100%', marginTop: '10px', fontSize: '0.75rem', borderColor: 'var(--accent-red)', color: '#fff' }}
+                    type="button"
+                    onClick={handleResendVerificationLink}
+                  >
+                    Resend Verification Link Email
+                  </button>
+                )}
+              </div>
+            )}
+
             <form onSubmit={handleAuthSubmit}>
               {authView === 'register' && (
                 <div className="form-group">
-                  <label>Full Name</label>
-                  <input type="text" className="form-control" value={authName} onChange={(e) => setAuthName(e.target.value)} required />
+                  <label>Full Name *</label>
+                  <input type="text" className="form-control" value={authName} onChange={(e) => setAuthName(e.target.value)} required placeholder="John Doe" />
                 </div>
               )}
               <div className="form-group">
-                <label>Email Address</label>
-                <input type="email" className="form-control" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} required />
+                <label>Email Address *</label>
+                <input type="email" className="form-control" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} required placeholder="name@company.com" />
               </div>
               <div className="form-group">
-                <label>Password</label>
-                <input type="password" className="form-control" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required />
+                <label>Password *</label>
+                <input type="password" className="form-control" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required placeholder="••••••••" />
               </div>
               <button className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }} type="submit">
-                {authView === 'login' ? 'Login' : 'Register'}
+                {authView === 'login' ? 'Sign In' : 'Register Account'}
               </button>
             </form>
+
             <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '0.85rem' }}>
               {authView === 'login' ? (
                 <span>No account? <a onClick={() => setAuthView('register')}>Register Here</a></span>
               ) : (
-                <span>Has an account? <a onClick={() => setAuthView('login')}>Login Here</a></span>
+                <span>Already registered? <a onClick={() => setAuthView('login')}>Sign In Here</a></span>
               )}
             </div>
           </div>
@@ -1290,7 +2544,7 @@ Please return ONLY the updated template text.`;
               <div>
                 <div style={{ display: 'flex', gap: '20px', marginBottom: '30px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <input type="text" className="form-control" style={{ flex: '1', minWidth: '200px' }} placeholder="Search datasets..." value={datasetListSearch} onChange={(e) => setDatasetListSearch(e.target.value)} />
-                  
+
                   {/* Category Dropdown */}
                   <select className="form-control" style={{ width: '180px' }} value={datasetFilterCat} onChange={(e) => setDatasetFilterCat(e.target.value)}>
                     <option value="">-- Categories --</option>
@@ -1298,7 +2552,7 @@ Please return ONLY the updated template text.`;
                       <option key={i} value={cat}>{cat}</option>
                     ))}
                   </select>
-                  
+
                   {/* Bangladesh Division Select Dropdown */}
                   <select className="form-control" style={{ width: '180px' }} value={datasetFilterDiv} onChange={(e) => { setDatasetFilterDiv(e.target.value); setDatasetFilterDist(''); setDatasetFilterArea(''); }}>
                     <option value="">-- Divisions --</option>
@@ -1310,7 +2564,7 @@ Please return ONLY the updated template text.`;
                   {datasetFilterDiv === 'Other' && (
                     <input type="text" className="form-control" style={{ width: '150px' }} placeholder="Type division..." value={datasetFilterDivCustom} onChange={(e) => setDatasetFilterDivCustom(e.target.value)} />
                   )}
-                  
+
                   {/* Bangladesh District Select Dropdown */}
                   <select className="form-control" style={{ width: '180px' }} value={datasetFilterDist} onChange={(e) => { setDatasetFilterDist(e.target.value); setDatasetFilterArea(''); }} disabled={!datasetFilterDiv && datasetFilterDiv !== 'Other'}>
                     <option value="">-- Districts --</option>
@@ -1371,7 +2625,21 @@ Please return ONLY the updated template text.`;
                           <Unlock size={16} /> Unlock Full Leads (<Coins size={14} style={{ color: '#eab308' }} /> {datasetDetail.dataset.price_credits} credits)
                         </button>
                       ) : (
-                        <div style={{ color: 'var(--text-neon)', fontSize: '0.9rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '6px' }}><CheckCircle2 size={16} /> Unlocked</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{ color: 'var(--text-neon)', fontSize: '0.85rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <CheckCircle2 size={16} /> Unlocked
+                          </div>
+                          {user && user.role === 'admin' && (
+                            <a
+                              href={`${API_BASE}/api/datasets/${datasetDetail.dataset.id}/export?token=${token}`}
+                              download
+                              className="btn btn-primary btn-sm"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', textDecoration: 'none', background: '#0284c7', borderColor: '#0284c7' }}
+                            >
+                              <Download size={14} /> Export File (Admin Only)
+                            </a>
+                          )}
+                        </div>
                       )}
                     </div>
 
@@ -1503,7 +2771,7 @@ Please return ONLY the updated template text.`;
                     </div>
                   ))}
                 </div>
-                
+
                 {/* Division Select Dropdown */}
                 <div className="form-group">
                   <label>Division</label>
@@ -1518,7 +2786,7 @@ Please return ONLY the updated template text.`;
                     <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom division name..." value={scrapeDivCustom} onChange={(e) => setScrapeDivCustom(e.target.value)} required />
                   )}
                 </div>
-                
+
                 {/* District Select Dropdown */}
                 <div className="form-group">
                   <label>District</label>
@@ -1533,7 +2801,7 @@ Please return ONLY the updated template text.`;
                     <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom district name..." value={scrapeDistCustom} onChange={(e) => setScrapeDistCustom(e.target.value)} required />
                   )}
                 </div>
-                
+
                 {/* Area Select Dropdown */}
                 <div className="form-group">
                   <label>Area / Sub-area</label>
@@ -1567,7 +2835,7 @@ Please return ONLY the updated template text.`;
                   <Search size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Show Live Map (Debug Tool)
                 </label>
               </div>
-              
+
               {activeJobId && (
                 <div style={{ marginBottom: '20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -1581,7 +2849,7 @@ Please return ONLY the updated template text.`;
                       <span style={{ fontSize: '0.75rem' }}>Auto-scroll Logs</span>
                     </label>
                   </div>
-                  
+
                   {/* Embedded Live Debug View (Screenshot Stream) */}
                   {showLiveDebug && (
                     <div className="map-viewer" style={{ marginBottom: '12px' }}>
@@ -1602,7 +2870,7 @@ Please return ONLY the updated template text.`;
                       )}
                     </div>
                   )}
-                  
+
                   <div className="terminal-box" ref={scraperTerminalRef}>
                     {activeJobLogs.map((log, index) => (
                       <div key={index} className="terminal-line">{log}</div>
@@ -1662,7 +2930,7 @@ Please return ONLY the updated template text.`;
                     <div className="stat-card-label">Total Campaigns</div>
                     <div className="stat-card-value">{dashboardStats?.total_campaigns || 0}</div>
                     <div className="stat-card-sub" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                      <MessageSquare size={12} style={{ color: '#06b6d4' }} /> {dashboardStats?.whatsapp_count || 0} WA · 
+                      <MessageSquare size={12} style={{ color: '#06b6d4' }} /> {dashboardStats?.whatsapp_count || 0} WA ·
                       <Mail size={12} style={{ color: '#a855f7' }} /> {dashboardStats?.email_count || 0} Email
                     </div>
                   </div>
@@ -1737,10 +3005,10 @@ Please return ONLY the updated template text.`;
                     </svg>
                     {/* Legend */}
                     <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '12px', flexWrap: 'wrap' }}>
-                      {[                        { label: 'Done', color: '#06b6d4' },
-                        { label: 'Running', color: '#39ff14' },
-                        { label: 'Failed', color: '#ef4444' },
-                        { label: 'Stopped', color: '#ffb000' },
+                      {[{ label: 'Done', color: '#06b6d4' },
+                      { label: 'Running', color: '#39ff14' },
+                      { label: 'Failed', color: '#ef4444' },
+                      { label: 'Stopped', color: '#ffb000' },
                       ].map((l, i) => (
                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
                           <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: l.color }}></div>
@@ -1827,7 +3095,26 @@ Please return ONLY the updated template text.`;
                       ))}
                     </select>
                   </div>
-                  
+
+                  {/* Granular Contact Selector Component */}
+                  {groupContacts.length > 0 && waRecipientGroup && (
+                    <div style={{ marginTop: '12px', marginBottom: '16px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', borderColor: 'rgba(6, 182, 212, 0.4)', background: 'rgba(6, 182, 212, 0.08)', padding: '10px 14px' }}
+                        onClick={() => setShowContactSelectorModal(true)}
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 'bold', color: '#06b6d4' }}>
+                          <User size={16} /> Filter & Select Target Leads
+                        </span>
+                        <span style={{ fontSize: '0.78rem', background: '#06b6d4', color: '#000', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                          {selectedContactIds.size} / {groupContacts.length} Selected
+                        </span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Start Row Selector */}
                   {waRecipientGroup && selectedGroupRowCount > 0 && (
                     <div className="start-row-container">
@@ -1973,14 +3260,27 @@ Please return ONLY the updated template text.`;
                     <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <Shield size={18} style={{ color: '#10b981' }} /> WhatsApp Session setup & Logs
                     </h3>
-                    <div style={{ border: '1px solid var(--border-subtle)', padding: '16px', borderRadius: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                      <div>
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Session Verification:</span><br />
-                        <span className="digital-text" style={{ fontSize: '1rem', fontWeight: 'bold' }}>{waSessionStatus}</span>
+                    <div style={{ border: '1px solid var(--border-subtle)', padding: '16px', borderRadius: '8px', marginBottom: '20px', background: 'rgba(0,0,0,0.2)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <div>
+                          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Session Connection Status:</span><br />
+                          <span className="digital-text" style={{ fontSize: '1rem', fontWeight: 'bold', color: waSessionStatus === 'Session Active' ? '#10b981' : '#f59e0b' }}>
+                            {waSessionStatus === 'Session Active' ? '● SESSION ACTIVE (Logged In)' : '○ NO ACTIVE SESSION (Scan Required)'}
+                          </span>
+                        </div>
+                        <button className="btn btn-secondary btn-sm" onClick={checkWhatsAppStatus} title="Refresh Status">
+                          🔄 Check
+                        </button>
                       </div>
-                      {user.role === 'admin' && (
-                        <button className="btn btn-secondary btn-sm" onClick={setupWhatsAppSession}>Scan QR Code</button>
-                      )}
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '12px' }}>
+                        <button className="btn btn-secondary btn-sm" onClick={setupWhatsAppSession} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.8rem' }}>
+                          <QrCode size={15} /> Launch / Verify Session
+                        </button>
+                        <button className="btn btn-danger btn-sm" onClick={resetWhatsAppSession} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.8rem', background: 'rgba(239, 68, 68, 0.15)', borderColor: '#ef4444' }}>
+                          <RefreshCw size={15} /> Switch / New QR Code
+                        </button>
+                      </div>
                     </div>
 
                     {activeCampaignId && (
@@ -2045,6 +3345,60 @@ Please return ONLY the updated template text.`;
                       </div>
                     </div>
                   </div>
+
+                  {/* Anti-Ban Protection Protocol Panel */}
+                  <div className="card glowing-panel" style={{ marginTop: '20px', borderColor: 'rgba(16, 185, 129, 0.4)', background: 'rgba(6, 78, 59, 0.15)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                      <h3 style={{ margin: 0, color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem' }}>
+                        <ShieldCheck size={18} /> Active Anti-Ban Protection Protocol
+                      </h3>
+                      <span style={{ fontSize: '0.7rem', background: 'rgba(16, 185, 129, 0.2)', color: '#34d399', padding: '3px 8px', borderRadius: '12px', border: '1px solid #059669', fontWeight: 'bold' }}>
+                        ● 100% PROTECTED
+                      </span>
+                    </div>
+
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginBottom: '15px', lineHeight: '1.4' }}>
+                      Our automated dispatch engine executes strict anti-ban algorithms to protect your WhatsApp number from spam filters and rate-limiting blocks:
+                    </p>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 'bold', color: '#6ee7b7', marginBottom: '3px' }}>
+                          <Clock size={14} /> Human Jitter Delays
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Randomized 15s to 45s typing interval between every message dispatch.
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 'bold', color: '#6ee7b7', marginBottom: '3px' }}>
+                          <Sparkles size={14} /> Spintax & Personalization
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Dynamic name substitution prevents uniform bulk message fingerprinting.
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 'bold', color: '#6ee7b7', marginBottom: '3px' }}>
+                          <Activity size={14} /> Batch Rate Limiting
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Enforces 50 messages/hour cap with automatic cool-down breaks.
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', fontWeight: 'bold', color: '#6ee7b7', marginBottom: '3px' }}>
+                          <Bot size={14} /> Auto-Pause Safeguard
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Instantly pauses campaign if WhatsApp socket detects connection instability.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -2063,7 +3417,26 @@ Please return ONLY the updated template text.`;
                       ))}
                     </select>
                   </div>
-                  
+
+                  {/* Granular Contact Selector Component for Email */}
+                  {groupContacts.length > 0 && emailRecipientGroup && (
+                    <div style={{ marginTop: '12px', marginBottom: '16px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', borderColor: 'rgba(129, 140, 248, 0.4)', background: 'rgba(129, 140, 248, 0.08)', padding: '10px 14px' }}
+                        onClick={() => setShowContactSelectorModal(true)}
+                      >
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 'bold', color: '#818cf8' }}>
+                          <User size={16} /> Filter & Select Target Leads
+                        </span>
+                        <span style={{ fontSize: '0.78rem', background: '#818cf8', color: '#000', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                          {selectedContactIds.size} / {groupContacts.length} Selected
+                        </span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Pre-built Email Template Selector */}
                   <div className="form-group" style={{ background: 'rgba(99, 102, 241, 0.08)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', color: '#818cf8', margin: 0 }}>
@@ -2176,7 +3549,7 @@ Please return ONLY the updated template text.`;
                     <label>Email Subject</label>
                     <input type="text" className="form-control" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
                   </div>
-                  
+
                   <div className="form-group">
                     <label>HTML Code</label>
                     <textarea className="form-control" style={{ minHeight: '220px', fontFamily: 'monospace', fontSize: '0.8rem' }} value={emailHtml} onChange={(e) => setEmailHtml(e.target.value)} />
@@ -2431,7 +3804,7 @@ Please return ONLY the updated template text.`;
                       <label>Unlock Pricing Credits *</label>
                       <input type="number" className="form-control" value={uploadPrice} onChange={(e) => setUploadPrice(e.target.value)} required />
                     </div>
-                    
+
                     {/* Region dropdowns for Admin upload */}
                     <div className="form-group">
                       <label>Division</label>
@@ -2486,7 +3859,7 @@ Please return ONLY the updated template text.`;
         )}
 
         {/* ══ TAB: CUSTOMERS & CREDITS MANAGER ══ */}
-        {(currentTab === 'users' || (currentTab === 'admin' && adminSubTab === 'users')) && user && user.role === 'admin' && (
+        {(currentTab === 'users' || (currentTab === 'admin' && adminSubTab === 'users')) && user && (user.role === 'admin' || user.role === 'superadmin') && (
           <div>
             <div className="card glowing-panel" style={{ borderColor: 'rgba(59, 130, 246, 0.5)', marginBottom: '25px' }}>
               <h2 style={{ marginBottom: '10px', color: '#3b82f6', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -2495,7 +3868,7 @@ Please return ONLY the updated template text.`;
               <p style={{ color: 'var(--text-secondary)', marginBottom: '20px' }}>
                 View all registered customers, control account permissions, ban/unban users, and instantly assign credits to their balance.
               </p>
-              
+
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px', marginBottom: '20px' }}>
                 <div style={{ background: 'var(--bg-card)', padding: '15px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>TOTAL REGISTERED</div>
@@ -2540,17 +3913,24 @@ Please return ONLY the updated template text.`;
                       <td>
                         <div><strong>{u.full_name || 'No Name Provided'}</strong></div>
                         <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{u.email}</div>
+                        {u.warning_message && (
+                          <div style={{ fontSize: '0.75rem', color: '#ffb000', marginTop: '2px', fontWeight: 'bold' }}>
+                            ⚠️ Warning: "{u.warning_message}"
+                          </div>
+                        )}
                         {u.created_at && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Joined: {u.created_at.split(' ')[0]}</div>}
                       </td>
                       <td>
                         <select
                           className="form-control"
-                          style={{ width: 'auto', padding: '4px 8px', fontSize: '0.85rem', background: u.role === 'admin' ? 'rgba(59, 130, 246, 0.1)' : 'transparent', borderColor: u.role === 'admin' ? '#3b82f6' : 'var(--border-subtle)' }}
+                          style={{ width: 'auto', padding: '4px 8px', fontSize: '0.85rem', background: u.role === 'superadmin' ? 'rgba(168, 85, 247, 0.15)' : u.role === 'admin' ? 'rgba(59, 130, 246, 0.1)' : 'transparent', borderColor: u.role === 'superadmin' ? '#a855f7' : u.role === 'admin' ? '#3b82f6' : 'var(--border-subtle)' }}
                           value={u.role}
+                          disabled={user.role === 'admin' && (u.role === 'admin' || u.role === 'superadmin')}
                           onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
                         >
                           <option value="user">User</option>
                           <option value="admin">Admin</option>
+                          {user.role === 'superadmin' && <option value="superadmin">Superadmin</option>}
                         </select>
                       </td>
                       <td>
@@ -2577,20 +3957,32 @@ Please return ONLY the updated template text.`;
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           <button
                             className={`btn btn-sm ${u.is_banned === 1 ? 'btn-primary' : 'btn-danger'}`}
+                            style={{ background: u.is_banned === 1 ? '#22c55e' : undefined, borderColor: u.is_banned === 1 ? '#22c55e' : undefined, padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            disabled={user.role === 'admin' && (u.role === 'admin' || u.role === 'superadmin')}
                             onClick={() => handleBanUser(u.id, false, "", u.is_banned)}
+                            title={user.role === 'admin' && (u.role === 'admin' || u.role === 'superadmin') ? "Admins cannot ban other Admins or Superadmins" : u.is_banned === 1 ? "Unban User Account" : "Ban User Account"}
                           >
-                            {u.is_banned === 1 ? '✅ Unban Account' : '🚫 Ban Account'}
+                            {u.is_banned === 1 ? <UserCheck size={16} /> : <Ban size={16} />}
                           </button>
-                          <a
-                            href={`mailto:${u.email}?subject=Important Notice Regarding Your DataBazaar Account`}
-                            className="btn btn-secondary btn-sm"
-                            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                          <button
+                            className="btn btn-danger btn-sm"
+                            style={{ background: '#7f1d1d', borderColor: '#b91c1c', color: '#fca5a5', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            onClick={() => handleUnregisterUser(u.id, u.email)}
+                            title="Permanently delete user account from DB"
                           >
-                            ✉️ Email Warning
-                          </a>
+                            <Trash2 size={16} />
+                          </button>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ borderColor: u.warning_message ? '#ffb000' : 'var(--border-subtle)', color: u.warning_message ? '#ffb000' : '#fff', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            onClick={() => openWarningModal(u.id, u.email, u.warning_message)}
+                            title={u.warning_message ? "Warning Active (Click to edit or clear)" : "Issue Application Warning Banner"}
+                          >
+                            <AlertTriangle size={16} />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -2602,16 +3994,21 @@ Please return ONLY the updated template text.`;
         )}
 
         {/* ══ TAB: SECURITY MODULE ══ */}
-        {currentTab === 'security' && user && user.role === 'admin' && (
+        {currentTab === 'security' && user && (user.role === 'admin' || user.role === 'superadmin') && (
           <div>
             <div className="card glowing-panel" style={{ borderColor: 'rgba(239, 68, 68, 0.5)' }}>
-              <h2 style={{ marginBottom: '10px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Shield size={24} /> Security Module
-              </h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <h2 style={{ margin: 0, color: '#ef4444', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Shield size={24} /> Security Control & Anti-Leak Module
+                </h2>
+                <button className="btn btn-secondary btn-sm" onClick={() => { loadAdminViolations(); loadAdminUsers(); }} title="Fetch and reload latest security violations">
+                  🔄 Fetch Violations
+                </button>
+              </div>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '25px' }}>
                 This dashboard logs attempts by users to screenshot data using keyboard shortcuts. Violators can be instantly banned by IP and Account.
               </p>
-              
+
               <table className="admin-table">
                 <thead>
                   <tr>
@@ -2623,30 +4020,56 @@ Please return ONLY the updated template text.`;
                   </tr>
                 </thead>
                 <tbody>
-                  {adminViolations.map(v => (
-                    <tr key={v.id}>
-                      <td>{new Date(v.created_at).toLocaleString()}</td>
-                      <td><strong>{v.email}</strong></td>
-                      <td style={{ color: '#ef4444' }}>{v.violation_type}</td>
-                      <td className="digital-text">{v.ip_address}</td>
-                      <td>
-                        <button 
-                          className="btn btn-danger btn-sm" 
-                          onClick={() => handleBanUser(v.user_id, true, v.ip_address, 0)}
-                        >
-                          Ban IP & Account
-                        </button>
-                        <a href={`mailto:${v.email}?subject=Security Violation Notice`} className="btn btn-secondary btn-sm" style={{ marginLeft: '8px' }}>
-                          Email Warning
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
+                  {adminViolations.map(v => {
+                    const targetUserObj = adminUsers.find(u => u.id === v.user_id);
+                    const isTargetBanned = targetUserObj ? targetUserObj.is_banned === 1 : false;
+                    const isTargetAdmin = targetUserObj ? (targetUserObj.role === 'admin' || targetUserObj.role === 'superadmin') : false;
+                    const canBanTarget = user.role === 'superadmin' || !isTargetAdmin;
+
+                    return (
+                      <tr key={v.id}>
+                        <td>{v.created_at ? new Date(v.created_at.includes('T') ? v.created_at : v.created_at.replace(' ', 'T')).toLocaleString() : 'N/A'}</td>
+                        <td><strong>{v.email}</strong></td>
+                        <td style={{ color: '#ef4444' }}>{v.violation_type}</td>
+                        <td className="digital-text">{v.ip_address}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button
+                              className={`btn btn-sm ${isTargetBanned ? 'btn-primary' : 'btn-danger'}`}
+                              style={{ background: isTargetBanned ? '#22c55e' : undefined, borderColor: isTargetBanned ? '#22c55e' : undefined, padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                              disabled={!canBanTarget}
+                              onClick={() => handleBanUser(v.user_id, true, v.ip_address, isTargetBanned ? 1 : 0)}
+                              title={!canBanTarget ? "Admins cannot ban other Admins or Superadmins" : isTargetBanned ? "Unban account & remove IP ban" : `Ban IP address (${v.ip_address}) & account`}
+                            >
+                              {isTargetBanned ? <UserCheck size={16} /> : <Ban size={16} />}
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              style={{ background: '#7f1d1d', borderColor: '#b91c1c', color: '#fca5a5', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                              disabled={!canBanTarget}
+                              onClick={() => handleUnregisterUser(v.user_id, v.email)}
+                              title="Permanently delete user account from database"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ borderColor: '#ffb000', color: '#ffb000', padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                              onClick={() => openWarningModal(v.user_id, v.email, '')}
+                              title="Issue application-level warning banner"
+                            >
+                              <AlertTriangle size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {adminViolations.length === 0 && (
                     <tr>
                       <td colSpan="5" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
                         <Shield size={32} style={{ opacity: 0.2, marginBottom: '10px' }} />
-                        <br/>
+                        <br />
                         No security violations logged yet.
                       </td>
                     </tr>
@@ -2684,52 +4107,7 @@ Please return ONLY the updated template text.`;
             </div>
           </div>
         )}
-
-      </div>
-
-      {/* Floating Toast Notification Panel */}
-      <div className="toast-container">
-        {toasts.map(t => (
-          <div key={t.id} className={`toast toast-${t.type}`} style={{ paddingBottom: t.onConfirm ? '18px' : '14px' }}>
-            <span className="toast-icon" style={{ alignSelf: t.onConfirm ? 'flex-start' : 'center', marginTop: t.onConfirm ? '2px' : '0' }}>
-              {t.type === 'success' ? '✅' : t.type === 'error' ? '❌' : t.type === 'warning' ? '⚠️' : 'ℹ️'}
-            </span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: '1' }}>
-              <span className="toast-msg">{t.message}</span>
-              {t.onConfirm && (
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    className="btn btn-primary"
-                    style={{ padding: '4px 10px', fontSize: '0.75rem', marginTop: '2px', background: 'var(--text-amber)', borderColor: 'var(--text-amber)', color: '#000000' }}
-                    onClick={() => {
-                      t.onConfirm();
-                      setToasts(prev => prev.filter(x => x.id !== t.id));
-                    }}
-                  >
-                    Confirm
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ padding: '4px 10px', fontSize: '0.75rem', marginTop: '2px' }}
-                    onClick={() => {
-                      if (t.onCancel) t.onCancel();
-                      setToasts(prev => prev.filter(x => x.id !== t.id));
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
-            </div>
-            <button className="toast-close" style={{ alignSelf: t.onConfirm ? 'flex-start' : 'center' }} onClick={() => {
-              if (t.onCancel) t.onCancel();
-              setToasts(prev => prev.filter(x => x.id !== t.id));
-            }}>&times;</button>
-            {!t.onConfirm && <div className="toast-progress"></div>}
-          </div>
-        ))}
-      </div>
-      </main>
-    </div>
-  );
+      </>
+    );
+  }
 }

@@ -1,9 +1,13 @@
 import os
 import json
 import time
+import uuid
 import base64
 import glob
 import threading
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import pandas as pd
 from datetime import datetime
 from typing import Optional
@@ -15,9 +19,10 @@ from database import get_db, init_db
 from auth import hash_password, verify_password, create_jwt_token, decode_jwt_token
 from scraper import setup_driver, scrape_query, save_to_excel
 from senders import run_whatsapp_campaign, write_log_to_file, SCREENSHOTS_FOLDER as CAMPAIGN_SCREENSHOTS
-from config import REGIONS, CATEGORIES
+from config import REGIONS, CATEGORIES, BREVO_API_KEY as CONFIG_BREVO_API_KEY, SMTP_USER as CONFIG_SMTP_USER, SUPERADMIN_EMAIL, SUPERADMIN_PASSWORD, SUPERADMIN_NAME
+from email_templates import get_verification_email_html
 
-app = FastAPI(title="DataBazaar API Service")
+app = FastAPI(title="MarketingOstad API Service")
 
 # Allow CORS for React frontend (standard dev port 5173 / 3000 / localhost)
 app.add_middleware(
@@ -37,16 +42,33 @@ os.makedirs(SCRAPE_RESULTS_FOLDER, exist_ok=True)
 os.makedirs(SCRAPER_SCREENSHOTS_FOLDER, exist_ok=True)
 os.makedirs(LOGS_FOLDER, exist_ok=True)
 
+@app.on_event("startup")
+def startup_db_unban_admins():
+    try:
+        conn = get_db()
+        conn.execute("UPDATE users SET is_banned = 0, is_verified = 1, warning_message = '' WHERE role = 'admin' OR email = 'admin@marketingostad.com' OR email = 'admin@databazaar.com'")
+        conn.execute("DELETE FROM banned_ips")
+        conn.commit()
+        conn.close()
+        print("[OK] Admin accounts and localhost unbanned automatically on backend startup.")
+    except Exception as e:
+        print("[STARTUP DB UNBAN ERROR]", e)
+
 # ── Dependencies ─────────────────────────────────────────
 
-def get_current_user(request: Request, authorization: Optional[str] = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
+def get_current_user(request: Request, authorization: Optional[str] = Header(None), token: Optional[str] = None):
+    raw_token = None
+    if authorization and authorization.startswith("Bearer "):
+        raw_token = authorization.split(" ")[1]
+    elif token:
+        raw_token = token
+
+    if not raw_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or malformed Authorization header."
+            detail="Missing or malformed Authorization header or token query parameter."
         )
-    token = authorization.split(" ")[1]
-    user_payload = decode_jwt_token(token)
+    user_payload = decode_jwt_token(raw_token)
     if not user_payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -83,7 +105,7 @@ def get_current_user(request: Request, authorization: Optional[str] = Header(Non
     return dict(user)
 
 def get_admin_user(current_user: dict = Depends(get_current_user)):
-    if current_user["role"] != "admin":
+    if current_user["role"] not in ("admin", "superadmin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrator access is required."
@@ -122,11 +144,88 @@ class WhatsAppCampaignRequest(BaseModel):
     message_template: str
     resume: Optional[bool] = False
     start_row: Optional[int] = None
+    selected_contacts: Optional[list[dict]] = None
 
 class EmailCampaignRequest(BaseModel):
     recipient_group: str
     subject: str
     html_code: str
+    selected_contacts: Optional[list[dict]] = None
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+# ── Free Brevo / SMTP Helper ─────────────────────────────
+
+def send_free_verification_email(recipient_email: str, full_name: str, verify_link: str):
+    brevo_api_key = os.getenv("BREVO_API_KEY", "")
+    smtp_server = os.getenv("SMTP_SERVER", "smtp-relay.brevo.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "asifdev777@gmail.com")
+    smtp_pass = os.getenv("SMTP_PASSWORD", os.getenv("BREVO_SMTP_KEY", ""))
+
+    html_body = get_verification_email_html(full_name, verify_link)
+    last_error = ""
+
+    # 1. Try Brevo REST API if API Key is set
+    if brevo_api_key:
+        try:
+            import urllib.request
+            url = "https://api.brevo.com/v3/smtp/email"
+            payload = {
+                "sender": {"name": "MarketingOstad Platform", "email": smtp_user},
+                "to": [{"email": recipient_email, "name": full_name}],
+                "subject": "Verify Your MarketingOstad Account Email",
+                "htmlContent": html_body
+            }
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "accept": "application/json",
+                    "api-key": brevo_api_key,
+                    "content-type": "application/json"
+                }
+            )
+            with urllib.request.urlopen(req) as resp:
+                if resp.status in (200, 201):
+                    print(f"[BREVO API SUCCESS] Verification email sent to {recipient_email} via Brevo!")
+                    return True, ""
+        except urllib.error.HTTPError as ex:
+            err_body = ex.read().decode("utf-8")
+            print(f"[BREVO API ERROR] {ex.code}: {err_body}")
+            try:
+                err_json = json.loads(err_body)
+                last_error = err_json.get("message", str(ex))
+            except Exception:
+                last_error = f"HTTP {ex.code}: {err_body}"
+        except Exception as ex:
+            print(f"[BREVO API ERROR] {ex}")
+            last_error = str(ex)
+
+    # 2. Try SMTP (Brevo SMTP or custom SMTP) if password/key is set
+    if smtp_pass:
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = "Verify Your MarketingOstad Account Email"
+            msg["From"] = f"MarketingOstad Platform <{smtp_user}>"
+            msg["To"] = recipient_email
+            msg.attach(MIMEText(html_body, "html"))
+
+            with smtplib.SMTP(smtp_server, smtp_port) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(smtp_user, recipient_email, msg.as_string())
+            print(f"[BREVO / SMTP SUCCESS] Verification email sent to {recipient_email} via {smtp_server}!")
+            return True, ""
+        except Exception as e:
+            print(f"[SMTP ERROR] Failed to send email via {smtp_server}: {e}")
+            last_error = str(e)
+
+    if not last_error:
+        last_error = "Brevo API key or SMTP password is missing in backend .env file."
+        
+    return False, last_error
 
 # ── Auth Endpoints ───────────────────────────────────────
 
@@ -139,35 +238,104 @@ def register(req: RegisterRequest):
         raise HTTPException(status_code=400, detail="An account with this email already exists.")
     
     pwd_hash = hash_password(req.password)
-    # Default users get 5 free credits
+    v_token = str(uuid.uuid4())
+    verify_link = f"http://localhost:5173/?verify_token={v_token}"
+    
+    # 1. SEND EMAIL FIRST - DO NOT INSERT TO DATABASE IF EMAIL DISPATCH FAILS!
+    email_dispatched, err_msg = send_free_verification_email(req.email, req.full_name, verify_link)
+    if not email_dispatched:
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Verification email could not be sent: {err_msg}. Registration cancelled."
+        )
+
+    # 2. ONLY INSERT USER INTO DATABASE WHEN VERIFICATION EMAIL IS SENT SUCCESSFULLY!
     conn.execute(
-        "INSERT INTO users (email, full_name, password_hash, role, credits) VALUES (?, ?, ?, 'user', 5)",
-        (req.email, req.full_name, pwd_hash)
+        "INSERT INTO users (email, full_name, password_hash, role, credits, is_verified, verification_token) VALUES (?, ?, ?, 'user', 5, 0, ?)",
+        (req.email, req.full_name, pwd_hash, v_token)
     )
     conn.commit()
     user = conn.execute("SELECT * FROM users WHERE email = ?", (req.email,)).fetchone()
     conn.close()
     
-    token = create_jwt_token(user["id"], user["role"])
     return {
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "full_name": user["full_name"],
-            "role": user["role"],
-            "credits": user["credits"]
+        "success": True,
+        "requires_verification": True,
+        "email_dispatched": True,
+        "message": f"Verification email successfully sent to {req.email}! Please check your inbox and click the verification link.",
+        "email": user["email"]
+    }
+
+@app.get("/api/auth/verify-email")
+def verify_email(token: str):
+    if not token:
+        raise HTTPException(status_code=400, detail="Verification token is missing.")
+    
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE verification_token = ?", (token,)).fetchone()
+    if not user:
+        conn.close()
+        return {
+            "success": True,
+            "already_verified": True,
+            "message": "Your email address is already verified! Please log in to access your account."
         }
+    
+    conn.execute("UPDATE users SET is_verified = 1, verification_token = NULL WHERE id = ?", (user["id"],))
+    conn.commit()
+    conn.close()
+    
+    return {
+        "success": True,
+        "message": f"Email {user['email']} verified successfully! You can now sign in."
+    }
+
+@app.post("/api/auth/resend-verification")
+def resend_verification(req: ResendVerificationRequest):
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE email = ?", (req.email,)).fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="No account found with this email.")
+    
+    if user["is_verified"] == 1:
+        conn.close()
+        return {"success": True, "message": "Account email is already verified. Please proceed to login."}
+    
+    v_token = str(uuid.uuid4())
+    conn.execute("UPDATE users SET verification_token = ? WHERE id = ?", (v_token, user["id"]))
+    conn.commit()
+    conn.close()
+    
+    verify_link = f"http://localhost:5173/?verify_token={v_token}"
+    email_dispatched, err_msg = send_free_verification_email(req.email, user["full_name"], verify_link)
+    if not email_dispatched:
+        raise HTTPException(status_code=400, detail=f"Failed to resend email: {err_msg}")
+
+    return {
+        "success": True,
+        "email_dispatched": True,
+        "message": "A new verification link has been sent to your email address."
     }
 
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
     conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE email = ?", (req.email,)).fetchone()
+    user_row = conn.execute("SELECT * FROM users WHERE email = ?", (req.email,)).fetchone()
     conn.close()
     
-    if not user or not verify_password(req.password, user["password_hash"]):
+    if not user_row or not verify_password(req.password, user_row["password_hash"]):
         raise HTTPException(status_code=400, detail="Invalid email or password.")
+    
+    user = dict(user_row)
+    
+    # Require email verification for non-admin users
+    if user["role"] not in ("admin", "superadmin") and user.get("is_verified", 0) != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Email address not verified! Please check your email inbox for the verification link before logging in."
+        )
     
     token = create_jwt_token(user["id"], user["role"])
     return {
@@ -177,7 +345,9 @@ def login(req: LoginRequest):
             "email": user["email"],
             "full_name": user["full_name"],
             "role": user["role"],
-            "credits": user["credits"]
+            "credits": user["credits"],
+            "is_verified": user.get("is_verified", 1),
+            "warning_message": user.get("warning_message") or ""
         }
     }
 
@@ -189,7 +359,9 @@ def me(current_user: dict = Depends(get_current_user)):
         "full_name": current_user["full_name"],
         "role": current_user["role"],
         "credits": current_user["credits"],
-        "is_banned": current_user.get("is_banned", 0)
+        "is_verified": current_user.get("is_verified", 1),
+        "is_banned": current_user.get("is_banned", 0),
+        "warning_message": current_user.get("warning_message") or ""
     }
 
 # ── Security Endpoints ───────────────────────────────────
@@ -198,14 +370,22 @@ class ViolationRequest(BaseModel):
     violation_type: str
 
 @app.post("/api/security/log-violation")
-def log_security_violation(req: ViolationRequest, request: Request, current_user: dict = Depends(get_current_user)):
+def log_security_violation(req: ViolationRequest, request: Request):
     client_ip = request.client.host if request.client else "unknown"
     user_agent = request.headers.get("user-agent", "unknown")
     
+    user_id = None
+    auth_header = request.headers.get("authorization", "")
+    if auth_header and auth_header.startswith("Bearer "):
+        tok = auth_header.split(" ", 1)[1]
+        payload = verify_jwt_token(tok)
+        if payload:
+            user_id = payload.get("user_id")
+
     conn = get_db()
     conn.execute(
         "INSERT INTO security_violations (user_id, ip_address, user_agent, violation_type) VALUES (?, ?, ?, ?)",
-        (current_user["id"], client_ip, user_agent, req.violation_type)
+        (user_id, client_ip, user_agent, req.violation_type)
     )
     conn.commit()
     conn.close()
@@ -240,6 +420,16 @@ def list_datasets(category: Optional[str] = None, division: Optional[str] = None
     conn.close()
     return [dict(r) for r in rows]
 
+def clean_lead_df(df):
+    """Clean DataFrame to strip float conversion .0 suffixes and NaN strings"""
+    df = df.fillna("")
+    for col in df.columns:
+        df[col] = df[col].astype(str).str.replace(r'\.0$', '', regex=True)
+        df[col] = df[col].astype(str).str.replace(r'^\+?88001', '+8801', regex=True)
+        df[col] = df[col].astype(str).str.replace(r'^88001', '+8801', regex=True)
+        df[col] = df[col].replace({'nan': '', 'NaN': '', 'None': '', 'None.0': ''})
+    return df
+
 @app.get("/api/datasets/{dataset_id}")
 def get_dataset(dataset_id: int, page: int = 1, search: Optional[str] = None, authorization: Optional[str] = Header(None)):
     conn = get_db()
@@ -250,16 +440,34 @@ def get_dataset(dataset_id: int, page: int = 1, search: Optional[str] = None, au
         
     file_path = ds["file_path"]
     if not os.path.exists(file_path):
+        filename = os.path.basename(file_path.replace("\\", "/"))
+        local_upload = os.path.join(UPLOAD_FOLDER, filename)
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        root_mirpur = os.path.join(parent_dir, "coaching_centers_mirpur.xlsx")
+        root_sanitized = os.path.join(parent_dir, "sanitized_coaching_centers.xlsx")
+        
+        if os.path.exists(local_upload):
+            file_path = local_upload
+        elif "mirpur" in filename.lower() and os.path.exists(root_mirpur):
+            file_path = root_mirpur
+        elif os.path.exists(root_sanitized):
+            file_path = root_sanitized
+            
+        if os.path.exists(file_path):
+            conn.execute("UPDATE datasets SET file_path = ? WHERE id = ?", (file_path, dataset_id))
+            conn.commit()
+
+    if not os.path.exists(file_path):
         conn.close()
         raise HTTPException(status_code=404, detail="Data file missing.")
 
     # Parse Excel/CSV
     try:
         if file_path.endswith(".csv"):
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(file_path, dtype=str)
         else:
-            df = pd.read_excel(file_path)
-        df = df.fillna("")
+            df = pd.read_excel(file_path, dtype=str)
+        df = clean_lead_df(df)
     except Exception:
         conn.close()
         raise HTTPException(status_code=500, detail="Error reading file contents.")
@@ -353,6 +561,33 @@ def unlock_dataset(dataset_id: int, current_user: dict = Depends(get_current_use
     user = conn.execute("SELECT credits FROM users WHERE id = ?", (current_user["id"],)).fetchone()
     conn.close()
     return {"success": True, "credits": user["credits"]}
+
+@app.get("/api/datasets/{dataset_id}/export")
+def export_dataset(dataset_id: int, token: Optional[str] = None, admin_user: dict = Depends(get_admin_user)):
+    """
+    Only admin users are allowed to download / export dataset files to Excel.
+    Non-admin users will receive HTTP 403 Forbidden.
+    """
+    conn = get_db()
+    ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+    conn.close()
+    
+    if not ds:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+        
+    file_path = ds["file_path"]
+    if not os.path.exists(file_path):
+        filename = os.path.basename(file_path.replace("\\", "/"))
+        local_upload = os.path.join(UPLOAD_FOLDER, filename)
+        if os.path.exists(local_upload):
+            file_path = local_upload
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Data file missing.")
+
+    from fastapi.responses import FileResponse
+    filename = os.path.basename(file_path)
+    return FileResponse(file_path, filename=filename, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 # ── Admin Upload ─────────────────────────────────────────
 
@@ -550,23 +785,55 @@ def promote_job(job_id: int, category: str = Form(...), name: str = Form(...), a
 @app.get("/api/marketing/whatsapp-status")
 def whatsapp_status():
     profile = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whatsapp_session")
-    active = os.path.exists(profile) and len(os.listdir(profile)) > 0
-    return {"session_active": active}
+    if not os.path.exists(profile):
+        return {"session_active": False}
+    
+    has_files = False
+    try:
+        for root, dirs, files in os.walk(profile):
+            if len(files) > 0:
+                has_files = True
+                break
+    except Exception:
+        pass
+
+    return {"session_active": has_files}
 
 @app.get("/api/marketing/whatsapp-setup-session")
-def whatsapp_setup(background_tasks: BackgroundTasks, admin_user: dict = Depends(get_admin_user)):
-    # Launch browser window to scan QR code
+def whatsapp_setup(background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    from senders import wait_for_whatsapp_login
     def scan_runner():
         try:
             driver = setup_driver()
-            driver.get("https://web.whatsapp.com")
-            # Keep browser alive for login scans
-            time.sleep(90)
+            wait_for_whatsapp_login(driver)
+            time.sleep(5)
             driver.quit()
         except Exception:
             pass
     background_tasks.add_task(scan_runner)
-    return {"success": True, "message": "Chrome launched. Verify WhatsApp on screen now."}
+    return {"success": True, "message": "Chrome launched. Please scan the QR code on screen."}
+
+@app.post("/api/marketing/whatsapp-reset-session")
+def whatsapp_reset_session(background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    import shutil
+    from senders import wait_for_whatsapp_login
+    profile = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whatsapp_session")
+    if os.path.exists(profile):
+        try:
+            shutil.rmtree(profile, ignore_errors=True)
+        except Exception:
+            pass
+    
+    def scan_runner():
+        try:
+            driver = setup_driver()
+            wait_for_whatsapp_login(driver)
+            time.sleep(5)
+            driver.quit()
+        except Exception:
+            pass
+    background_tasks.add_task(scan_runner)
+    return {"success": True, "message": "WhatsApp session cleared! Chrome launched to scan new QR code."}
 
 @app.get("/api/marketing/whatsapp-progress")
 def get_progress(recipient_group: str, current_user: dict = Depends(get_current_user)):
@@ -598,7 +865,8 @@ def send_whatsapp(req: WhatsAppCampaignRequest, background_tasks: BackgroundTask
         raise HTTPException(status_code=404, detail="Recipients source dataset file not found.")
 
     try:
-        df = pd.read_csv(file_path) if file_path.endswith(".csv") else pd.read_excel(file_path)
+        df = pd.read_csv(file_path, dtype=str) if file_path.endswith(".csv") else pd.read_excel(file_path, dtype=str)
+        df = clean_lead_df(df)
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to load lead group columns.")
 
@@ -613,15 +881,18 @@ def send_whatsapp(req: WhatsAppCampaignRequest, background_tasks: BackgroundTask
     if not phone_col:
         raise HTTPException(status_code=400, detail="Lead group file lacks contact phone columns.")
 
-    contacts = []
-    for _, row in df.iterrows():
-        p = str(row[phone_col]).strip() if pd.notna(row[phone_col]) else ""
-        n = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else "Customer"
-        if len(p) > 7:
-            contacts.append({"phone": p, "name": n})
+    if req.selected_contacts and len(req.selected_contacts) > 0:
+        contacts = req.selected_contacts
+    else:
+        contacts = []
+        for _, row in df.iterrows():
+            p = str(row[phone_col]).strip() if pd.notna(row[phone_col]) else ""
+            n = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else "Customer"
+            if len(p) > 7:
+                contacts.append({"phone": p, "name": n})
 
     if not contacts:
-        raise HTTPException(status_code=400, detail="No contacts found in dataset.")
+        raise HTTPException(status_code=400, detail="No contacts selected or found in dataset.")
 
     # Deduct credits
     start_index = 0
@@ -682,9 +953,11 @@ def send_email(req: EmailCampaignRequest, current_user: dict = Depends(get_curre
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to load file.")
 
+    target_count = len(req.selected_contacts) if req.selected_contacts and len(req.selected_contacts) > 0 else len(df)
+
     # Deduct 1 credit for email campaign
     conn = get_db()
-    if current_user["role"] != "admin":
+    if current_user["role"] != "admin" and current_user["role"] != "superadmin":
         if current_user["credits"] < 1:
             conn.close()
             raise HTTPException(status_code=403, detail="Insufficient credits to run email campaign.")
@@ -695,16 +968,87 @@ def send_email(req: EmailCampaignRequest, current_user: dict = Depends(get_curre
     conn.execute(
         """INSERT INTO marketing_campaigns (id, user_id, campaign_type, recipient_group, template_preview, status, sent_count, total_count)
            VALUES (?, ?, 'email', ?, ?, 'done', ?, ?)""",
-        (campaign_id, current_user["id"], req.recipient_group, req.subject, len(df), len(df))
+        (campaign_id, current_user["id"], req.recipient_group, req.subject, target_count, target_count)
     )
     conn.execute(
         "INSERT INTO campaign_logs (campaign_id, message) VALUES (?, ?)",
-        (campaign_id, f"Email campaign dispatched successfully to {len(df)} addresses.")
+        (campaign_id, f"Email campaign dispatched successfully to {target_count} selected addresses.")
     )
     conn.commit()
     conn.close()
 
-    return {"success": True, "campaign_id": campaign_id, "recipient_count": len(df)}
+    return {"success": True, "campaign_id": campaign_id, "recipient_count": target_count}
+
+@app.get("/api/marketing/recipient-contacts")
+def get_recipient_contacts(recipient_group: str, current_user: dict = Depends(get_current_user)):
+    file_path = None
+    conn = get_db()
+    if recipient_group.startswith("dataset_"):
+        ds_id = recipient_group.replace("dataset_", "")
+        ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (ds_id,)).fetchone()
+        if ds:
+            file_path = ds["file_path"]
+    elif recipient_group.startswith("job_"):
+        job_id = recipient_group.replace("job_", "")
+        jb = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
+        if jb:
+            file_path = jb["result_path"]
+    conn.close()
+
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Recipient source data file not found.")
+
+    try:
+        df = pd.read_csv(file_path, dtype=str) if file_path.endswith(".csv") else pd.read_excel(file_path, dtype=str)
+        df = clean_lead_df(df)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to parse lead data file.")
+
+    phone_col = None
+    email_col = None
+    name_col = None
+
+    for c in df.columns:
+        c_lower = c.lower()
+        if "phone" in c_lower or "mobile" in c_lower or "contact" in c_lower:
+            if not phone_col: phone_col = c
+        if "email" in c_lower or "mail" in c_lower:
+            if not email_col: email_col = c
+        if "name" in c_lower or "title" in c_lower:
+            if not name_col: name_col = c
+
+    def clean_val(v):
+        if v is None:
+            return ""
+        s = str(v).strip()
+        if s.endswith(".0"):
+            s = s[:-2]
+        if s in ("nan", "NaN", "None", "None.0"):
+            return ""
+        if s.startswith("+88001"):
+            s = "+8801" + s[6:]
+        elif s.startswith("88001"):
+            s = "+8801" + s[5:]
+        elif s.startswith("001") and len(s) == 13:
+            s = "+8801" + s[3:]
+        return s
+
+    contacts = []
+    for idx, row in df.iterrows():
+        name_val = clean_val(row[name_col]) if name_col and row[name_col] else f"Lead #{idx+1}"
+        phone_val = clean_val(row[phone_col]) if phone_col and row[phone_col] else ""
+        email_val = clean_val(row[email_col]) if email_col and row[email_col] else ""
+        area_val = clean_val(row.get("Area", row.get("District", row.get("Address", "BD"))))
+        
+        contacts.append({
+            "id": idx,
+            "name": name_val,
+            "phone": phone_val,
+            "email": email_val,
+            "area": area_val
+        })
+
+    return {"success": True, "total": len(contacts), "contacts": contacts}
 
 @app.get("/api/marketing/campaigns")
 def list_campaigns(current_user: dict = Depends(get_current_user)):
@@ -804,33 +1148,110 @@ class BanRequest(BaseModel):
 def get_security_violations(admin_user: dict = Depends(get_admin_user)):
     conn = get_db()
     rows = conn.execute("""
-        SELECT v.*, u.email, u.full_name 
+        SELECT v.*, 
+               COALESCE(u.email, 'Guest Visitor (' || v.ip_address || ')') AS email,
+               COALESCE(u.full_name, 'Guest User') AS full_name
         FROM security_violations v
-        JOIN users u ON v.user_id = u.id
+        LEFT JOIN users u ON v.user_id = u.id
         ORDER BY v.created_at DESC
     """).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
+@app.post("/api/admin/violations/seed-test")
+def seed_test_violations(request: Request, admin_user: dict = Depends(get_admin_user)):
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    user_agent = request.headers.get("user-agent", "Mozilla/5.0")
+    
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO security_violations (user_id, ip_address, user_agent, violation_type) VALUES (?, ?, ?, ?)",
+        (admin_user["id"], client_ip, user_agent, "macOS Screenshot Shortcut (Cmd + Shift + 4)")
+    )
+    conn.execute(
+        "INSERT INTO security_violations (user_id, ip_address, user_agent, violation_type) VALUES (?, ?, ?, ?)",
+        (None, "103.145.72.10", user_agent, "Windows Snipping Tool (Win + Shift + S)")
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Test security violations logged."}
+
 @app.post("/api/admin/users/{target_user_id}/ban")
 def ban_user(target_user_id: int, req: BanRequest, admin_user: dict = Depends(get_admin_user)):
     conn = get_db()
+    
+    target_u = conn.execute("SELECT id, role, email FROM users WHERE id = ?", (target_user_id,)).fetchone()
+    if not target_u:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Target user account not found.")
+
+    if target_u["id"] == admin_user["id"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="You cannot ban your own active account.")
+
+    # Role Hierarchy Ban Constraints:
+    # Admin cannot ban admin or superadmin. Superadmin can ban anyone.
+    if admin_user["role"] == "admin" and target_u["role"] in ("admin", "superadmin") and req.is_banned == 1:
+        conn.close()
+        raise HTTPException(
+            status_code=403,
+            detail="Admins cannot ban other Admins or Superadmins. Only Superadmin can ban administrative accounts."
+        )
+
     conn.execute("UPDATE users SET is_banned = ?, warning_message = ? WHERE id = ?", (req.is_banned, req.warning_message, target_user_id))
-    if req.ban_ip and req.ip_address:
+    if req.ban_ip and req.ip_address and req.ip_address not in ("127.0.0.1", "::1", "localhost"):
         if req.is_banned == 1:
             conn.execute("INSERT OR IGNORE INTO banned_ips (ip_address, reason) VALUES (?, ?)", (req.ip_address, req.warning_message))
         else:
             conn.execute("DELETE FROM banned_ips WHERE ip_address = ?", (req.ip_address,))
     conn.commit()
     conn.close()
-    return {"success": True}
+    return {"success": True, "message": "User ban status updated."}
+class AdminWarningRequest(BaseModel):
+    warning_message: str
+
+@app.post("/api/admin/users/{target_user_id}/warning")
+def set_admin_warning(target_user_id: int, req: AdminWarningRequest, admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    conn.execute("UPDATE users SET warning_message = ? WHERE id = ?", (req.warning_message, target_user_id))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Application-level warning message updated."}
+
+@app.delete("/api/admin/users/{target_user_id}")
+def unregister_user(target_user_id: int, admin_user: dict = Depends(get_admin_user)):
+    if target_user_id == admin_user["id"]:
+        raise HTTPException(status_code=400, detail="You cannot unregister your own admin account.")
+        
+    conn = get_db()
+    u = conn.execute("SELECT id, email FROM users WHERE id = ?", (target_user_id,)).fetchone()
+    if not u:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    # Permanently delete user and associated records from database
+    conn.execute("DELETE FROM access_logs WHERE user_id = ?", (target_user_id,))
+    conn.execute("DELETE FROM credit_transactions WHERE user_id = ?", (target_user_id,))
+    conn.execute("DELETE FROM security_violations WHERE user_id = ?", (target_user_id,))
+    conn.execute("DELETE FROM users WHERE id = ?", (target_user_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": f"User #{target_user_id} ({u['email']}) has been permanently unregistered and deleted from database."}
 
 # ── Database Auto Initialize ──────────────────────────────
 
 @app.get("/api/config/regions")
 def get_regions_config():
-    # Return Bangladesh Region Hierarchy and Categories
-    return {"regions": REGIONS, "categories": CATEGORIES}
+    # Return Bangladesh Region Hierarchy, Categories, and Contact info from .env
+    return {
+        "regions": REGIONS,
+        "categories": CATEGORIES,
+        "contacts": {
+            "support_email": os.getenv("SUPPORT_EMAIL", os.getenv("SMTP_USER", "asifdev777@gmail.com")),
+            "hotline_phone": os.getenv("HOTLINE_PHONE", "+880 1700-000000"),
+            "support_hours": os.getenv("SUPPORT_HOURS", "24/7 Automated System & Live WhatsApp Assistance")
+        }
+    }
 
 # ── Dashboard Stats Endpoint ─────────────────────────────
 
@@ -937,19 +1358,28 @@ def get_campaign_screenshot(campaign_id: str, current_user: dict = Depends(get_c
 @app.on_event("startup")
 def startup_event():
     init_db()
-    
-    # Create default admin if not exists
     conn = get_db()
-    exists = conn.execute("SELECT id FROM users WHERE email = 'admin@databazaar.com'").fetchone()
-    if not exists:
-        pwd_hash = hash_password("admin123")
-        conn.execute(
-            "INSERT INTO users (email, full_name, password_hash, role, credits) VALUES ('admin@databazaar.com', 'System Admin', ?, 'admin', 9999)",
-            (pwd_hash,)
-        )
-        conn.commit()
-        print("[OK] Created default admin account: admin@databazaar.com / admin123")
-
+    pwd_hash = hash_password(SUPERADMIN_PASSWORD)
+    
+    # Register / ensure sole Superadmin from env config
+    try:
+        superadmin = conn.execute("SELECT id FROM users WHERE email = ?", (SUPERADMIN_EMAIL,)).fetchone()
+        if not superadmin:
+            conn.execute(
+                "INSERT INTO users (email, full_name, password_hash, role, credits, is_verified) VALUES (?, ?, ?, 'superadmin', 99999, 1)",
+                (SUPERADMIN_EMAIL, SUPERADMIN_NAME, pwd_hash)
+            )
+            conn.commit()
+            print(f"[OK] Registered sole Superadmin account from ENV: {SUPERADMIN_EMAIL} / {SUPERADMIN_PASSWORD}")
+        else:
+            conn.execute("UPDATE users SET password_hash = ?, full_name = ?, role = 'superadmin', is_verified = 1, is_banned = 0 WHERE email = ?", (pwd_hash, SUPERADMIN_NAME, SUPERADMIN_EMAIL))
+            conn.commit()
+    except Exception as err:
+        print("[SUPERADMIN SEED NOTICE] Migrating schema to superadmin role...", err)
+        conn.close()
+        from database import reset_db_only_superadmin
+        reset_db_only_superadmin()
+        conn = get_db()
     # Seed demo datasets if table is empty
     ds_exists = conn.execute("SELECT id FROM datasets").fetchone()
     if not ds_exists:
@@ -967,7 +1397,7 @@ def startup_event():
                 conn.execute(
                     """INSERT INTO datasets (name, category, division, district, area, file_path, row_count, column_names, price_credits, uploaded_by)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    ("Coaching Centers in Mirpur, Dhaka", "Coaching Center", "Dhaka", "Dhaka City", "Mirpur", dest_path, len(df), ", ".join(df.columns), 10, 1)
+                    ("Coaching Centers in Mirpur, Dhaka", "Coaching Center", "Dhaka", "Dhaka City", "Mirpur", dest_path, len(df), ", ".join(df.columns), 0, 1)
                 )
                 conn.commit()
                 print("[OK] Seeded Coaching Centers in Mirpur.")
@@ -985,11 +1415,14 @@ def startup_event():
                 conn.execute(
                     """INSERT INTO datasets (name, category, division, district, area, file_path, row_count, column_names, price_credits, uploaded_by)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    ("Verified Coaching Centers - General", "Coaching Center", "Dhaka", "Dhaka City", "Mirpur", dest_path, len(df), ", ".join(df.columns), 15, 1)
+                    ("Verified Coaching Centers - General", "Coaching Center", "Dhaka", "Dhaka City", "Mirpur", dest_path, len(df), ", ".join(df.columns), 0, 1)
                 )
                 conn.commit()
                 print("[OK] Seeded Sanitized Coaching Centers.")
             except Exception as e:
                 print(f"[ERR] Failed to seed Sanitized dataset: {e}")
         
+    # Update default datasets to 0 credits (FREE for users)
+    conn.execute("UPDATE datasets SET price_credits = 0 WHERE uploaded_by = 1 OR uploaded_by IS NULL")
+    conn.commit()
     conn.close()

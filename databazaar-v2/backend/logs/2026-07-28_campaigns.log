@@ -1,0 +1,190 @@
+[01:30:07] [wa_camp_1785180607] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[01:30:07] [wa_camp_1785180607] [WHATSAPP] Starting from contact index: 0 | Total contacts: 2
+[01:30:43] [wa_camp_1785180607] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[01:30:43] [wa_camp_1785180607] [WHATSAPP] [1/2] Opening chat for Alif's make up studio & Beauty Salon (Mirpur Branch) (880013170398320)...
+[01:31:22] [wa_camp_1785180607] [WHATSAPP] ⚠️ Failed to load chat element for Alif's make up studio & Beauty Salon (Mirpur Branch). Skipping...
+[01:31:22] [wa_camp_1785180607] [WHATSAPP] [2/2] Opening chat for BELLE Beauty Parlour Mirpur 11 Branch (880013144555030)...
+[01:31:41] [wa_camp_1785180607] [WHATSAPP] Campaign stopped. Paused at lead index: 1.
+[01:32:21] [wa_camp_1785180741] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[01:32:21] [wa_camp_1785180741] [WHATSAPP] Starting from contact index: 0 | Total contacts: 3
+[01:32:32] [wa_camp_1785180741] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[01:32:32] [wa_camp_1785180741] [WHATSAPP] [1/3] Opening chat for Men's Zone Salon (880016002203260)...
+[01:32:57] [wa_camp_1785180741] [WHATSAPP] Campaign stopped. Paused at lead index: 0.
+[01:38:28] [wa_camp_1785181108] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[01:38:28] [wa_camp_1785181108] [WHATSAPP] Starting from contact index: 0 | Total contacts: 2
+[01:38:43] [wa_camp_1785181108] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[01:38:43] [wa_camp_1785181108] [WHATSAPP] [1/2] Opening chat for Dhaka Cuisine Cafe & Restaurant (88001511511753)...
+[01:39:21] [wa_camp_1785181108] [WHATSAPP] ⚠️ Failed to load chat element for Dhaka Cuisine Cafe & Restaurant. Skipping...
+[01:39:21] [wa_camp_1785181108] [WHATSAPP] [2/2] Opening chat for Eldora Restaurant, Mirpur 12, Dhaka. (88001715770443)...
+[01:39:28] [wa_camp_1785181108] [WHATSAPP] Typing message to Eldora Restaurant, Mirpur 12, Dhaka....
+[01:39:28] [wa_camp_1785181108] [WHATSAPP] ❌ Typing process failed for Eldora Restaurant, Mirpur 12, Dhaka.: Message: unknown error: ChromeDriver only supports characters in the BMP
+  (Session info: chrome=150.0.7871.182)
+Stacktrace:
+0   chromedriver                        0x00000001006076fc chromedriver + 5945084
+1   chromedriver                        0x00000001000a84e8 chromedriver + 312552
+2   chromedriver                        0x0000000100129f0c chromedriver + 843532
+3   chromedriver                        0x00000001000edc0c chromedriver + 597004
+4   chromedriver                        0x00000001000ed0bc chromedriver + 594108
+5   chromedriver                        0x00000001000e883c chromedriver + 575548
+6   chromedriver                        0x0000000100130c94 chromedriver + 871572
+7   chromedriver                        0x00000001000e733c chromedriver + 570172
+8   chromedriver                        0x00000001005cca04 chromedriver + 5704196
+9   chromedriver                        0x00000001005d0284 chromedriver + 5718660
+10  chromedriver                        0x00000001005b2880 chromedriver + 5597312
+11  chromedriver                        0x00000001005d0b18 chromedriver + 5720856
+12  chromedriver                        0x00000001005a39f8 chromedriver + 5536248
+13  chromedriver                        0x00000001005f540c chromedriver + 5870604
+14  chromedriver                        0x00000001005f556c chromedriver + 5870956
+15  chromedriver                        0x0000000100607354 chromedriver + 5944148
+16  libsystem_pthread.dylib             0x0000000188ce1c54 _pthread_start + 132
+17  libsystem_pthread.dylib             0x0000000188cdcc18 thread_start + 4
+
+[01:39:28] [wa_camp_1785181108] [WHATSAPP] 🎉 WhatsApp campaign completed! Sent: 0, Failed: 2
+[01:41:42] [wa_camp_1785181302] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[01:41:42] [wa_camp_1785181302] [WHATSAPP] Starting from contact index: 0 | Total contacts: 2
+[01:41:55] [wa_camp_1785181302] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[01:41:55] [wa_camp_1785181302] [WHATSAPP] [1/2] Opening chat for (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬ (8801705025532)...
+[01:42:01] [wa_camp_1785181302] [WHATSAPP] Typing message to (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬...
+[01:42:01] [wa_camp_1785181302] [WHATSAPP] ❌ Typing process failed for (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬: Message: unknown error: ChromeDriver only supports characters in the BMP
+  (Session info: chrome=150.0.7871.182)
+Stacktrace:
+0   chromedriver                        0x00000001034076fc chromedriver + 5945084
+1   chromedriver                        0x0000000102ea84e8 chromedriver + 312552
+2   chromedriver                        0x0000000102f29f0c chromedriver + 843532
+3   chromedriver                        0x0000000102eedc0c chromedriver + 597004
+4   chromedriver                        0x0000000102eed0bc chromedriver + 594108
+5   chromedriver                        0x0000000102ee883c chromedriver + 575548
+6   chromedriver                        0x0000000102f30c94 chromedriver + 871572
+7   chromedriver                        0x0000000102ee733c chromedriver + 570172
+8   chromedriver                        0x00000001033cca04 chromedriver + 5704196
+9   chromedriver                        0x00000001033d0284 chromedriver + 5718660
+10  chromedriver                        0x00000001033b2880 chromedriver + 5597312
+11  chromedriver                        0x00000001033d0b18 chromedriver + 5720856
+12  chromedriver                        0x00000001033a39f8 chromedriver + 5536248
+13  chromedriver                        0x00000001033f540c chromedriver + 5870604
+14  chromedriver                        0x00000001033f556c chromedriver + 5870956
+15  chromedriver                        0x0000000103407354 chromedriver + 5944148
+16  libsystem_pthread.dylib             0x0000000188ce1c54 _pthread_start + 132
+17  libsystem_pthread.dylib             0x0000000188cdcc18 thread_start + 4
+
+[01:42:01] [wa_camp_1785181302] [WHATSAPP] [2/2] Opening chat for 10 Minute School English Centre Mirpur (8801896057972)...
+[01:42:07] [wa_camp_1785181302] [WHATSAPP] Typing message to 10 Minute School English Centre Mirpur...
+[01:42:07] [wa_camp_1785181302] [WHATSAPP] ❌ Typing process failed for 10 Minute School English Centre Mirpur: Message: unknown error: ChromeDriver only supports characters in the BMP
+  (Session info: chrome=150.0.7871.182)
+Stacktrace:
+0   chromedriver                        0x00000001034076fc chromedriver + 5945084
+1   chromedriver                        0x0000000102ea84e8 chromedriver + 312552
+2   chromedriver                        0x0000000102f29f0c chromedriver + 843532
+3   chromedriver                        0x0000000102eedc0c chromedriver + 597004
+4   chromedriver                        0x0000000102eed0bc chromedriver + 594108
+5   chromedriver                        0x0000000102ee883c chromedriver + 575548
+6   chromedriver                        0x0000000102f30c94 chromedriver + 871572
+7   chromedriver                        0x0000000102ee733c chromedriver + 570172
+8   chromedriver                        0x00000001033cca04 chromedriver + 5704196
+9   chromedriver                        0x00000001033d0284 chromedriver + 5718660
+10  chromedriver                        0x00000001033b2880 chromedriver + 5597312
+11  chromedriver                        0x00000001033d0b18 chromedriver + 5720856
+12  chromedriver                        0x00000001033a39f8 chromedriver + 5536248
+13  chromedriver                        0x00000001033f540c chromedriver + 5870604
+14  chromedriver                        0x00000001033f556c chromedriver + 5870956
+15  chromedriver                        0x0000000103407354 chromedriver + 5944148
+16  libsystem_pthread.dylib             0x0000000188ce1c54 _pthread_start + 132
+17  libsystem_pthread.dylib             0x0000000188cdcc18 thread_start + 4
+
+[01:42:08] [wa_camp_1785181302] [WHATSAPP] 🎉 WhatsApp campaign completed! Sent: 0, Failed: 2
+[01:44:40] [wa_camp_1785181480] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[01:44:40] [wa_camp_1785181480] [WHATSAPP] Starting from contact index: 0 | Total contacts: 2
+[01:44:54] [wa_camp_1785181480] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[01:44:54] [wa_camp_1785181480] [WHATSAPP] [1/2] Opening chat for (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬ (8801705025532)...
+[01:44:59] [wa_camp_1785181480] [WHATSAPP] Typing message to (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬...
+[01:44:59] [wa_camp_1785181480] [WHATSAPP] ❌ Typing process failed for (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬: Message: unknown error: ChromeDriver only supports characters in the BMP
+  (Session info: chrome=150.0.7871.182)
+Stacktrace:
+0   chromedriver                        0x0000000102fe76fc chromedriver + 5945084
+1   chromedriver                        0x0000000102a884e8 chromedriver + 312552
+2   chromedriver                        0x0000000102b09f0c chromedriver + 843532
+3   chromedriver                        0x0000000102acdc0c chromedriver + 597004
+4   chromedriver                        0x0000000102acd0bc chromedriver + 594108
+5   chromedriver                        0x0000000102ac883c chromedriver + 575548
+6   chromedriver                        0x0000000102b10c94 chromedriver + 871572
+7   chromedriver                        0x0000000102ac733c chromedriver + 570172
+8   chromedriver                        0x0000000102faca04 chromedriver + 5704196
+9   chromedriver                        0x0000000102fb0284 chromedriver + 5718660
+10  chromedriver                        0x0000000102f92880 chromedriver + 5597312
+11  chromedriver                        0x0000000102fb0b18 chromedriver + 5720856
+12  chromedriver                        0x0000000102f839f8 chromedriver + 5536248
+13  chromedriver                        0x0000000102fd540c chromedriver + 5870604
+14  chromedriver                        0x0000000102fd556c chromedriver + 5870956
+15  chromedriver                        0x0000000102fe7354 chromedriver + 5944148
+16  libsystem_pthread.dylib             0x0000000188ce1c54 _pthread_start + 132
+17  libsystem_pthread.dylib             0x0000000188cdcc18 thread_start + 4
+
+[01:44:59] [wa_camp_1785181480] [WHATSAPP] [2/2] Opening chat for 10 Minute School English Centre Mirpur (8801896057972)...
+[01:45:05] [wa_camp_1785181480] [WHATSAPP] Typing message to 10 Minute School English Centre Mirpur...
+[01:45:05] [wa_camp_1785181480] [WHATSAPP] ❌ Typing process failed for 10 Minute School English Centre Mirpur: Message: unknown error: ChromeDriver only supports characters in the BMP
+  (Session info: chrome=150.0.7871.182)
+Stacktrace:
+0   chromedriver                        0x0000000102fe76fc chromedriver + 5945084
+1   chromedriver                        0x0000000102a884e8 chromedriver + 312552
+2   chromedriver                        0x0000000102b09f0c chromedriver + 843532
+3   chromedriver                        0x0000000102acdc0c chromedriver + 597004
+4   chromedriver                        0x0000000102acd0bc chromedriver + 594108
+5   chromedriver                        0x0000000102ac883c chromedriver + 575548
+6   chromedriver                        0x0000000102b10c94 chromedriver + 871572
+7   chromedriver                        0x0000000102ac733c chromedriver + 570172
+8   chromedriver                        0x0000000102faca04 chromedriver + 5704196
+9   chromedriver                        0x0000000102fb0284 chromedriver + 5718660
+10  chromedriver                        0x0000000102f92880 chromedriver + 5597312
+11  chromedriver                        0x0000000102fb0b18 chromedriver + 5720856
+12  chromedriver                        0x0000000102f839f8 chromedriver + 5536248
+13  chromedriver                        0x0000000102fd540c chromedriver + 5870604
+14  chromedriver                        0x0000000102fd556c chromedriver + 5870956
+15  chromedriver                        0x0000000102fe7354 chromedriver + 5944148
+16  libsystem_pthread.dylib             0x0000000188ce1c54 _pthread_start + 132
+17  libsystem_pthread.dylib             0x0000000188cdcc18 thread_start + 4
+
+[01:45:05] [wa_camp_1785181480] [WHATSAPP] 🎉 WhatsApp campaign completed! Sent: 0, Failed: 2
+[01:47:49] [wa_camp_1785181669] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[01:47:49] [wa_camp_1785181669] [WHATSAPP] Starting from contact index: 0 | Total contacts: 2
+[01:48:04] [wa_camp_1785181669] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[01:48:04] [wa_camp_1785181669] [WHATSAPP] [1/2] Opening chat for (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬ (8801705025532)...
+[01:48:10] [wa_camp_1785181669] [WHATSAPP] Typing message to (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬...
+[01:48:13] [wa_camp_1785181669] [WHATSAPP] ✅ Message dispatched to (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬ successfully! [1/2]
+[01:48:33] [wa_camp_1785181669] [WHATSAPP] [2/2] Opening chat for 10 Minute School English Centre Mirpur (8801896057972)...
+[01:48:38] [wa_camp_1785181669] [WHATSAPP] Typing message to 10 Minute School English Centre Mirpur...
+[01:48:41] [wa_camp_1785181669] [WHATSAPP] ✅ Message dispatched to 10 Minute School English Centre Mirpur successfully! [2/2]
+[01:48:47] [wa_camp_1785181669] [WHATSAPP] Campaign stopped. Paused at lead index: 2.
+[01:49:54] [wa_camp_1785181794] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[01:49:54] [wa_camp_1785181794] [WHATSAPP] Starting from contact index: 0 | Total contacts: 2
+[01:50:06] [wa_camp_1785181794] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[01:50:06] [wa_camp_1785181794] [WHATSAPP] [1/2] Opening chat for 10 Minute School English Centre Moghbazar (8801844616778)...
+[01:50:11] [wa_camp_1785181794] [WHATSAPP] Typing message to 10 Minute School English Centre Moghbazar...
+[01:50:27] [wa_camp_1785181794] [WHATSAPP] ✅ Message dispatched to 10 Minute School English Centre Moghbazar successfully! [1/2]
+[01:50:31] [wa_camp_1785181794] [WHATSAPP] Campaign stopped. Paused at lead index: 1.
+[01:52:06] [wa_camp_1785181926] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[01:52:06] [wa_camp_1785181926] [WHATSAPP] Starting from contact index: 0 | Total contacts: 2
+[01:52:18] [wa_camp_1785181926] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[01:52:18] [wa_camp_1785181926] [WHATSAPP] [1/2] Opening chat for 10 Minute School English Centre Moghbazar (8801844616778)...
+[01:52:24] [wa_camp_1785181926] [WHATSAPP] Typing message to 10 Minute School English Centre Moghbazar...
+[01:53:22] [wa_camp_1785181926] [WHATSAPP] ❌ Typing process failed for 10 Minute School English Centre Moghbazar: Message: no such window: target window already closed
+from unknown error: web view not found
+  (Session info: chrome=150.0.7871.182)
+Stacktrace:
+0   chromedriver                        0x0000000100e8b6fc chromedriver + 5945084
+1   chromedriver                        0x000000010092c4e8 chromedriver + 312552
+2   chromedriver                        0x0000000100905b70 chromedriver + 154480
+3   chromedriver                        0x000000010099dd34 chromedriver + 777524
+4   chromedriver                        0x00000001009b47c4 chromedriver + 870340
+5   chromedriver                        0x000000010096b33c chromedriver + 570172
+6   chromedriver                        0x0000000100e50a04 chromedriver + 5704196
+7   chromedriver                        0x0000000100e54284 chromedriver + 5718660
+8   chromedriver                        0x0000000100e36880 chromedriver + 5597312
+9   chromedriver                        0x0000000100e54b18 chromedriver + 5720856
+10  chromedriver                        0x0000000100e279f8 chromedriver + 5536248
+11  chromedriver                        0x0000000100e7940c chromedriver + 5870604
+12  chromedriver                        0x0000000100e7956c chromedriver + 5870956
+13  chromedriver                        0x0000000100e8b354 chromedriver + 5944148
+14  libsystem_pthread.dylib             0x0000000188ce1c54 _pthread_start + 132
+15  libsystem_pthread.dylib             0x0000000188cdcc18 thread_start + 4
+
+[01:53:22] [wa_camp_1785181926] [WHATSAPP] Campaign stopped by user. Paused at lead index: 1.

@@ -19,11 +19,32 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             full_name TEXT NOT NULL,
             password_hash TEXT NOT NULL,
-            role TEXT DEFAULT 'user' CHECK(role IN ('user', 'admin')),
+            role TEXT DEFAULT 'user' CHECK(role IN ('user', 'admin', 'superadmin')),
             credits INTEGER DEFAULT 5,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Check if existing users table needs schema migration for superadmin
+    try:
+        cursor.execute("SELECT check_clause FROM sqlite_master WHERE type='table' AND name='users'")
+        sql_info = cursor.fetchone()
+        if sql_info and "superadmin" not in str(sql_info[0]):
+            print("[MIGRATING SCHEMA] Updating users table CHECK constraint for superadmin role...")
+            cursor.execute("DROP TABLE IF EXISTS users")
+            cursor.execute("""
+                CREATE TABLE users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    full_name TEXT NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT DEFAULT 'user' CHECK(role IN ('user', 'admin', 'superadmin')),
+                    credits INTEGER DEFAULT 5,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+    except Exception:
+        pass
 
     # Datasets table
     cursor.execute("""
@@ -175,7 +196,7 @@ def init_db():
     except Exception:
         pass  # Column already exists
         
-    # User ban tracking migrations
+    # User ban & verification tracking migrations
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0")
     except Exception:
@@ -184,10 +205,70 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN warning_message TEXT")
     except Exception:
         pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN verification_token TEXT")
+    except Exception:
+        pass
+
+    # Ensure admin users are unbanned and verified automatically
+    try:
+        cursor.execute("UPDATE users SET is_banned = 0, is_verified = 1, warning_message = '' WHERE role = 'admin' OR email = 'admin@marketingostad.com' OR email = 'admin@databazaar.com'")
+        cursor.execute("DELETE FROM banned_ips")
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
-    print("[OK] Database schema initialized successfully.")
+    print("[OK] Database schema initialized.")
+
+def reset_db_only_superadmin():
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Wipe all existing database tables
+    for table in ["security_violations", "banned_ips", "access_logs", "credit_transactions", "scrape_logs", "scrape_jobs", "campaign_logs", "marketing_campaigns", "whatsapp_progress"]:
+        try:
+            cursor.execute(f"DELETE FROM {table}")
+        except Exception:
+            pass
+
+    # Recreate users table to update CHECK constraint for superadmin role
+    cursor.execute("DROP TABLE IF EXISTS users")
+    cursor.execute("""
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            full_name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT DEFAULT 'user' CHECK(role IN ('user', 'admin', 'superadmin')),
+            credits INTEGER DEFAULT 5,
+            is_banned INTEGER DEFAULT 0,
+            warning_message TEXT,
+            is_verified INTEGER DEFAULT 0,
+            verification_token TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Insert only Superadmin user from env config
+    from auth import hash_password
+    from config import SUPERADMIN_EMAIL, SUPERADMIN_PASSWORD, SUPERADMIN_NAME
+    
+    pwd_hash = hash_password(SUPERADMIN_PASSWORD)
+
+    cursor.execute("""
+        INSERT INTO users (email, full_name, password_hash, role, credits, is_verified, is_banned)
+        VALUES (?, ?, ?, 'superadmin', 99999, 1, 0)
+    """, (SUPERADMIN_EMAIL, SUPERADMIN_NAME, pwd_hash))
+
+    conn.commit()
+    conn.close()
+    print(f"[OK] DATABASE CLEANED! ONLY Superadmin ({SUPERADMIN_EMAIL} / {SUPERADMIN_PASSWORD}) is registered.")
 
 if __name__ == "__main__":
     init_db()
+    reset_db_only_superadmin()

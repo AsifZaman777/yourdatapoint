@@ -45,8 +45,9 @@ def setup_driver(headless=False):
 def extract_phone(text):
     """Extract Bangladesh phone number from page source or elements"""
     patterns = [
-        r'(\+880\s?1[3-9]\d{8})',
-        r'(880\s?1[3-9]\d{8})',
+        r'(\+?88001[3-9]\d{8})',
+        r'(\+?8801[3-9]\d{8})',
+        r'(8801[3-9]\d{8})',
         r'(01[3-9]\d{8})',
         r'(1[3-9]\d{8})',
     ]
@@ -54,8 +55,16 @@ def extract_phone(text):
         match = re.search(pattern, text.replace('-', '').replace(' ', ''))
         if match:
             num = match.group(1)
-            if not num.startswith('+880') and not num.startswith('880'):
+            if num.startswith('+88001'):
+                num = '+8801' + num[6:]
+            elif num.startswith('88001'):
+                num = '+8801' + num[5:]
+            elif num.startswith('01'):
+                num = '+88' + num
+            elif num.startswith('1') and len(num) == 10:
                 num = '+880' + num
+            elif not num.startswith('+'):
+                num = '+' + num
             return num
     return ''
 
@@ -193,6 +202,8 @@ def save_to_excel(all_results, filename):
     if not all_results:
         return
     df = pd.DataFrame(all_results)
+    if "Phone" in df.columns:
+        df["Phone"] = df["Phone"].astype(str).str.replace(r'\.0$', '', regex=True).replace({'nan': '', 'None': ''})
     df = df.drop_duplicates(subset=["Name", "Phone"])
 
     # Sort with phone numbers first

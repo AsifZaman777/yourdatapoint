@@ -3,7 +3,7 @@ import hashlib
 import jwt
 from datetime import datetime, timedelta
 
-SECRET_KEY = os.getenv("JWT_SECRET", "databazaar_super_secret_cyber_key_999")
+SECRET_KEY = os.getenv("JWT_SECRET", "marketingostad_super_secret_cyber_key_999")
 ALGORITHM = "HS256"
 
 def hash_password(password: str) -> str:
