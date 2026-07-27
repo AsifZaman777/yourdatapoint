@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Datasets — DataBazaar{% endblock %}
+
+{% block content %}
+<div class="container page-content">
+    <div class="section-header" style="margin-bottom: 32px;">
+        <h2>Dataset Catalog</h2>
+        <p>Browse verified business datasets across Bangladesh</p>
+    </div>
+
+    <!-- ══ Filters ══ -->
+    <form class="catalog-filters" id="filter-form" method="GET" action="{{ url_for('catalog') }}">
+        <div class="filter-group">
+            <label>Search</label>
+            <input type="text" name="search" class="form-control" placeholder="Search datasets..." value="{{ search_query }}">
+        </div>
+        <div class="filter-group">
+            <label>Category</label>
+            <select name="category" class="form-control" onchange="this.form.submit()">
+                <option value="">All Categories</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Division</label>
+            <select name="division" class="form-control" id="filter-division" onchange="this.form.submit()">
+                <option value="">All Divisions</option>
+                {% for div in regions.keys() %}
+                <option value="{{ div }}" {% if selected_division == div %}selected{% endif %}>{{ div }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>District</label>
+            <select name="district" class="form-control" id="filter-district" onchange="this.form.submit()">
+                <option value="">All Districts</option>
+                {% if selected_division and selected_division in regions %}
+                    {% for dist in regions[selected_division].keys() %}
+                    <option value="{{ dist }}" {% if selected_district == dist %}selected{% endif %}>{{ dist }}</option>
+                    {% endfor %}
+                {% endif %}
+            </select>
+        </div>
+        <div class="filter-group" style="justify-content: flex-end;">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn btn-primary btn-sm">🔍 Filter</button>
+        </div>
+    </form>
+
+    <!-- ══ Dataset Grid ══ -->
+    {% if datasets %}
+    <div class="dataset-grid">
+        {% set cat_emojis = {
+            'Coaching Center': '🏫', 'Pharmacy': '💊', 'Medicine Store': '🏥',
+            'Hospital & Clinic': '🏨', 'Restaurant': '🍽️', 'School & College': '🎓',
+            'Grocery Store': '🛒', 'Real Estate': '🏠', 'Gym & Fitness': '💪',
+            'Salon & Beauty': '💇', 'Other': '📦'
+        } %}
+        {% for ds in datasets %}
+        <a href="{{ url_for('view_dataset', dataset_id=ds.id) }}" class="card dataset-card animate-in animate-in-delay-{{ loop.index0 % 4 }}" style="text-decoration: none; color: inherit;">
+            <span class="category-tag">
+                {{ cat_emojis.get(ds.category, '📦') }} {{ ds.category }}
+            </span>
+            <h3 class="dataset-name">{{ ds.name }}</h3>
+            <p class="dataset-desc">{{ ds.description or 'Business data scraped from Google Maps with verified contact information.' }}</p>
+            <div class="dataset-meta">
+                <span>📊 {{ ds.row_count }} rows</span>
+                {% if ds.division %}
+                <span>📍 {{ ds.area or ds.district or ds.division }}</span>
+                {% endif %}
+                <span>🪙 {{ ds.price_credits }} credits</span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <h3>No datasets found</h3>
+        <p>Try adjusting your filters or check back later for new datasets.</p>
+        <a href="{{ url_for('catalog') }}" class="btn btn-secondary">Clear Filters</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

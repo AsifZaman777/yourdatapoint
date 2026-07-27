@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Upload Dataset — Admin — DataBazaar{% endblock %}
+
+{% block content %}
+<div class="container page-content" style="max-width: 720px;">
+    <div style="margin-bottom: 32px;">
+        <a href="{{ url_for('admin_dashboard') }}" style="font-size: 0.9rem; color: var(--text-muted);">← Back to Dashboard</a>
+        <h2 style="margin-top: 16px; font-size: 1.8rem; font-weight: 800;">📁 Upload Dataset</h2>
+        <p style="color: var(--text-secondary);">Upload an Excel or CSV file to add a new dataset to the catalog</p>
+    </div>
+
+    <div class="card" style="padding: 32px;">
+        <form action="{{ url_for('admin_upload') }}" method="POST" enctype="multipart/form-data" id="upload-form">
+
+            <!-- File Upload -->
+            <div class="form-group">
+                <label>Dataset File *</label>
+                <div class="file-dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
+                    <div class="upload-icon">📂</div>
+                    <p>Click or drag & drop your file here</p>
+                    <p class="file-types">Supported: .xlsx, .xls, .csv (max 16 MB)</p>
+                    <input type="file" name="file" id="file-input" accept=".xlsx,.xls,.csv" required onchange="handleFileSelect(this)">
+                </div>
+                <div class="file-name-display" id="file-name-display">
+                    <span>📄</span>
+                    <span id="selected-file-name"></span>
+                </div>
+            </div>
+
+            <!-- Dataset Name -->
+            <div class="form-group">
+                <label for="name">Dataset Name *</label>
+                <input type="text" id="name" name="name" class="form-control"
+                       placeholder="e.g., Pharmacies in Gulshan, Dhaka" required>
+            </div>
+
+            <!-- Category -->
+            <div class="form-group">
+                <label for="category">Category *</label>
+                <select id="category" name="category" class="form-control" required>
+                    {% for cat in categories %}
+                    <option value="{{ cat }}">{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Region -->
+            <div class="form-group">
+                <label>Region</label>
+                <div class="region-selectors">
+                    <select id="division" name="division" class="form-control" onchange="updateUploadDistricts()">
+                        <option value="">Division</option>
+                        {% for div in regions.keys() %}
+                        <option value="{{ div }}">{{ div }}</option>
+                        {% endfor %}
+                    </select>
+                    <select id="district" name="district" class="form-control" onchange="updateUploadAreas()">
+                        <option value="">District</option>
+                    </select>
+                    <select id="area" name="area" class="form-control">
+                        <option value="">Area</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Description -->
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" name="description" class="form-control"
+                          placeholder="Describe the dataset contents, source, and what data it includes..."></textarea>
+            </div>
+
+            <!-- Price -->
+            <div class="form-group">
+                <label for="price_credits">Price (Credits)</label>
+                <input type="number" id="price_credits" name="price_credits" class="form-control"
+                       value="10" min="1" max="1000">
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 12px;">
+                📤 Upload Dataset
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const regionsData = {{ regions | tojson }};
+
+// ── Drag & Drop ──
+const dropzone = document.getElementById('dropzone');
+
+['dragenter', 'dragover'].forEach(event => {
+    dropzone.addEventListener(event, e => {
+        e.preventDefault();
+        dropzone.classList.add('drag-over');
+    });
+});
+
+['dragleave', 'drop'].forEach(event => {
+    dropzone.addEventListener(event, e => {
+        e.preventDefault();
+        dropzone.classList.remove('drag-over');
+    });
+});
+
+dropzone.addEventListener('drop', e => {
+    const files = e.dataTransfer.files;
+    if (files.length) {
+        document.getElementById('file-input').files = files;
+        handleFileSelect(document.getElementById('file-input'));
+    }
+});
+
+function handleFileSelect(input) {
+    if (input.files.length) {
+        const name = input.files[0].name;
+        document.getElementById('selected-file-name').textContent = name;
+        document.getElementById('file-name-display').classList.add('active');
+
+        // Auto-fill dataset name from filename
+        const nameInput = document.getElementById('name');
+        if (!nameInput.value) {
+            nameInput.value = name.replace(/\.\w+$/, '').replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        }
+    }
+}
+
+// ── Cascading Region Selectors ──
+function updateUploadDistricts() {
+    const div = document.getElementById('division').value;
+    const distSelect = document.getElementById('district');
+    const areaSelect = document.getElementById('area');
+
+    distSelect.innerHTML = '<option value="">District</option>';
+    areaSelect.innerHTML = '<option value="">Area</option>';
+
+    if (div && regionsData[div]) {
+        Object.keys(regionsData[div]).forEach(dist => {
+            const opt = document.createElement('option');
+            opt.value = dist;
+            opt.textContent = dist;
+            distSelect.appendChild(opt);
+        });
+    }
+}
+
+function updateUploadAreas() {
+    const div = document.getElementById('division').value;
+    const dist = document.getElementById('district').value;
+    const areaSelect = document.getElementById('area');
+
+    areaSelect.innerHTML = '<option value="">Area</option>';
+
+    if (div && dist && regionsData[div] && regionsData[div][dist]) {
+        regionsData[div][dist].forEach(area => {
+            const opt = document.createElement('option');
+            opt.value = area;
+            opt.textContent = area;
+            areaSelect.appendChild(opt);
+        });
+    }
+}
+</script>
+{% endblock %}

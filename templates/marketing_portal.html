@@ -1,0 +1,559 @@
+{% extends "base.html" %}
+{% block title %}Marketing Portal — DataBazaar{% endblock %}
+
+{% block content %}
+<div class="container page-content">
+    <div class="section-header" style="margin-bottom: 32px;">
+        <h2>Communications & Marketing Portal</h2>
+        <p>Send customized Email and WhatsApp campaigns to your target leads using intelligent protections.</p>
+    </div>
+
+    <!-- Tab Buttons -->
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchMarketingTab('email')">✉️ Email Campaign</button>
+        <button class="tab-btn" onclick="switchMarketingTab('whatsapp')">💬 WhatsApp Campaign</button>
+        <button class="tab-btn" onclick="switchMarketingTab('tracker')">📊 Campaigns Monitor</button>
+    </div>
+
+    <!-- ══ EMAIL CAMPAIGN TAB ══ -->
+    <div class="tab-content active" id="tab-marketing-email">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px;">
+            <!-- Left: HTML input & Settings -->
+            <div class="card">
+                <h3 style="margin-bottom: 20px;">✉️ Design Email Template</h3>
+                
+                <div class="form-group">
+                    <label for="email-recipient-group">Recipient Lead Group *</label>
+                    <select id="email-recipient-group" class="form-control">
+                        <option value="">-- Choose Target Leads --</option>
+                        <optgroup label="Seeded Datasets">
+                            {% for ds in datasets %}
+                            <option value="dataset_{{ ds.id }}">{{ ds.name }} ({{ ds.row_count }} leads)</option>
+                            {% endfor %}
+                        </optgroup>
+                        <optgroup label="Scraped Results">
+                            {% for job in jobs %}
+                            <option value="job_{{ job.id }}">{{ job.query }} in {{ job.area or job.district or 'BD' }} ({{ job.result_count }} leads)</option>
+                            {% endfor %}
+                        </optgroup>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="email-subject">Email Subject *</label>
+                    <input type="text" id="email-subject" class="form-control" placeholder="e.g. Special offer for {name}!" value="Special offer for your business!">
+                </div>
+
+                <div class="form-group">
+                    <label for="email-html-code">HTML Code Template *</label>
+                    <textarea id="email-html-code" class="form-control" style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; min-height: 350px;" oninput="updateEmailPreview()">
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+  &lt;style&gt;
+    body { font-family: sans-serif; background-color: #f4f4f7; padding: 20px; }
+    .email-card { background-color: #ffffff; border-radius: 8px; padding: 30px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    h1 { color: #6366f1; }
+    p { font-size: 15px; color: #515151; line-height: 1.6; }
+    .cta-btn { display: inline-block; padding: 12px 24px; background-color: #6366f1; color: white !important; border-radius: 6px; text-decoration: none; font-weight: bold; margin-top: 15px; }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div class="email-card"&gt;
+    &lt;h1&gt;Exclusive Offer for {name}!&lt;/h1&gt;
+    &lt;p&gt;We discovered your business in Google Maps and wanted to introduce a solution to double your operations efficiency.&lt;/p&gt;
+    &lt;p&gt;Get set up in 10 minutes with no technical experience required.&lt;/p&gt;
+    &lt;a href="https://campusbaba.com" class="cta-btn"&gt;Book Free Demo&lt;/a&gt;
+  &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+                    </textarea>
+                </div>
+
+                <button class="btn btn-primary btn-lg" style="width: 100%;" onclick="submitEmailCampaign()">
+                    ✉️ Dispatch Email Campaign
+                </button>
+            </div>
+
+            <!-- Right: Real-time Render Preview -->
+            <div class="card" style="display: flex; flex-direction: column;">
+                <h3 style="margin-bottom: 20px;">👁️ Live Render HTML Preview</h3>
+                <div style="flex: 1; min-height: 480px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); overflow: hidden; background: white;">
+                    <iframe id="email-preview-iframe" style="width: 100%; height: 100%; border: none;"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══ WHATSAPP CAMPAIGN TAB ══ -->
+    <div class="tab-content" id="tab-marketing-whatsapp">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 32px;">
+            <!-- Left: Settings & Message Text -->
+            <div class="card">
+                <h3 style="margin-bottom: 20px;">💬 Dispatch WhatsApp Messages</h3>
+                
+                <div class="form-group">
+                    <label for="wa-recipient-group">Recipient Lead Group *</label>
+                    <select id="wa-recipient-group" class="form-control">
+                        <option value="">-- Choose Target Leads --</option>
+                        <optgroup label="Seeded Datasets">
+                            {% for ds in datasets %}
+                            <option value="dataset_{{ ds.id }}">{{ ds.name }} ({{ ds.row_count }} leads)</option>
+                            {% endfor %}
+                        </optgroup>
+                        <optgroup label="Scraped Results">
+                            {% for job in jobs %}
+                            <option value="job_{{ job.id }}">{{ job.query }} in {{ job.area or job.district or 'BD' }} ({{ job.result_count }} leads)</option>
+                            {% endfor %}
+                        </optgroup>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="wa-message-text">Message Template *</label>
+                    <textarea id="wa-message-text" class="form-control" style="min-height: 250px;" placeholder="Use {name} to personalize the message...">
+আসসালামু আলাইকুম স্যার/ম্যাডাম,
+
+আমরা {name} এর জন্য বিশেষ একটি ১০ মিনিটের ফ্রী ডেমো দেখাতে চাই। 
+
+CampusBaba দিয়ে আপনার প্রতিষ্ঠানের কাজের ঝামেলা শেষ করুন — 
+✅ এক ক্লিকে attendance
+✅ ফি অটোমেটিক ট্র্যাকিং
+
+Demo Link: demo.campusbaba.com
+ধন্যবাদ!</textarea>
+                    <small style="color: var(--text-muted); font-size: 0.8rem; margin-top: 6px; display: block;">
+                        💡 <strong>Anti-Ban Protections Active:</strong> Messages are sent using randomized human typing patterns, spaced between 10-25 seconds per message, with a mandatory <strong>2-minute cooling break</strong> after every 8 messages.
+                    </small>
+                </div>
+
+                <button class="btn btn-success btn-lg" style="width: 100%;" onclick="submitWhatsAppCampaign()">
+                    💬 Launch WhatsApp Campaign
+                </button>
+            </div>
+
+            <!-- Right: Session control & Logs -->
+            <div class="card">
+                <h3 style="margin-bottom: 20px;">🛡️ WhatsApp Session & Progress Log</h3>
+                
+                <div style="padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-weight: bold; margin-bottom: 4px;">Global WhatsApp Status:</div>
+                            <span id="wa-session-badge" class="status-badge status-pending">Loading...</span>
+                        </div>
+                        {% if current_user.role == 'admin' %}
+                        <button class="btn btn-outline btn-sm" onclick="setupWhatsAppSession()">
+                            Scan Session QR Code
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Campaign Console View -->
+                <div id="wa-campaign-status" style="display: none;">
+                    <div class="job-tracker">
+                        <div class="job-status">
+                            <div class="status-dot" id="wa-status-dot"></div>
+                            <span id="wa-status-text">dispatching...</span>
+                        </div>
+                        <div style="margin-top: 10px; font-size: 0.85rem; color: var(--text-muted);">
+                            Progress: <span id="wa-campaign-progress">0 / 0</span> messages sent.
+                        </div>
+                    </div>
+
+                    <div class="log-box" id="wa-log-box">
+                        <h4>Campaign Logs <span style="font-size: 0.7rem; color: #565f89;">Live</span></h4>
+                        <div id="wa-log-lines">
+                            <!-- Live logs stream -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+    </div>
+
+    <!-- ══ CAMPAIGNS MONITOR TAB ══ -->
+    <div class="tab-content" id="tab-marketing-tracker">
+        <div class="card glowing-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                <h3 style="display: flex; align-items: center; gap: 8px;">📊 Live Campaigns Monitor</h3>
+                <button class="btn btn-primary btn-sm" onclick="loadAllCampaigns()">🔄 Refresh Status</button>
+            </div>
+            
+            <div style="overflow-x: auto; background: #070b13; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+                <div class="campaign-grid-row header" style="border-bottom: 1.5px solid rgba(255, 255, 255, 0.15); font-weight: 700; color: var(--text-primary);">
+                    <div>Type</div>
+                    <div>Status</div>
+                    <div>Target Group</div>
+                    <div>Progress</div>
+                    <div>Dispatched Time</div>
+                </div>
+                <div id="campaigns-list-body">
+                    <div style="padding: 40px; text-align: center; color: var(--text-muted);">
+                        Click refresh to load campaign logs
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let waPollInterval = null;
+let currentCampaignId = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateEmailPreview();
+    checkWhatsAppStatus();
+});
+
+// Switch tabs inside portal
+function switchMarketingTab(tab) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+    event.target.classList.add('active');
+    document.getElementById(`tab-marketing-${tab}`).classList.add('active');
+    
+    if (tab === 'tracker') {
+        loadAllCampaigns();
+    }
+}
+
+// Live email preview rendering
+function updateEmailPreview() {
+    const code = document.getElementById('email-html-code').value;
+    const iframe = document.getElementById('email-preview-iframe');
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open();
+    // Replace dummy name in preview
+    const rendered = code.replace(/{name}/g, 'ABC Enterprise');
+    doc.write(rendered);
+    doc.close();
+}
+
+async function submitEmailCampaign() {
+    const group = document.getElementById('email-recipient-group').value;
+    const subject = document.getElementById('email-subject').value;
+    const html = document.getElementById('email-html-code').value;
+
+    if (!group) {
+        alert("Please select a target lead group.");
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/marketing/send-email', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                recipient_group: group,
+                subject: subject,
+                html_code: html
+            })
+        });
+        const data = await res.json();
+        if (data.error) {
+            alert(data.error);
+        } else {
+            alert(data.message);
+        }
+    } catch(e) {
+        alert("Failed to initialize email campaign.");
+    }
+}
+
+// Check if WhatsApp session is ready
+async function checkWhatsAppStatus() {
+    try {
+        const res = await fetch('/api/marketing/whatsapp-status');
+        const data = await res.json();
+        const badge = document.getElementById('wa-session-badge');
+        if (data.session_active) {
+            badge.className = "status-badge status-done";
+            badge.textContent = "Session Active";
+        } else {
+            badge.className = "status-badge status-failed";
+            badge.textContent = "No Active Session";
+        }
+    } catch (e) {}
+}
+
+async function setupWhatsAppSession() {
+    try {
+        const res = await fetch('/api/marketing/whatsapp-setup-session');
+        const data = await res.json();
+        alert(data.message);
+    } catch(e) {
+        alert("Failed to initialize setup process.");
+    }
+}
+
+async function submitWhatsAppCampaign(resume = false) {
+    const group = document.getElementById('wa-recipient-group').value;
+    const template = document.getElementById('wa-message-text').value;
+
+    if (!group) {
+        alert("Please select a target lead group.");
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/marketing/send-whatsapp', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                recipient_group: group,
+                message_template: template,
+                resume: resume
+            })
+        });
+        const data = await res.json();
+        if (data.error) {
+            alert(data.error);
+        } else {
+            currentCampaignId = data.campaign_id;
+            document.getElementById('wa-campaign-status').style.display = 'block';
+            
+            // Add Stop button if not already present
+            let stopBtn = document.getElementById('wa-stop-btn');
+            if (!stopBtn) {
+                stopBtn = document.createElement('button');
+                stopBtn.id = 'wa-stop-btn';
+                stopBtn.className = 'btn btn-danger btn-sm';
+                stopBtn.style.marginTop = '12px';
+                stopBtn.style.width = '100%';
+                stopBtn.textContent = '⏹️ Stop Campaign';
+                stopBtn.onclick = stopWhatsAppCampaign;
+                document.getElementById('wa-campaign-status').appendChild(stopBtn);
+            }
+            stopBtn.style.display = 'block';
+            
+            startWaCampaignPolling();
+        }
+    } catch(e) {
+        alert("Failed to start WhatsApp campaign.");
+    }
+}
+
+async function stopWhatsAppCampaign() {
+    if (!currentCampaignId) return;
+    if (!confirm("Are you sure you want to stop this campaign? You can resume it later.")) return;
+
+    try {
+        const res = await fetch(`/api/marketing/whatsapp-campaign/${currentCampaignId}/stop`, {
+            method: 'POST'
+        });
+        const data = await res.json();
+        alert(data.message || "Stopping campaign...");
+        document.getElementById('wa-stop-btn').style.display = 'none';
+    } catch(e) {
+        alert("Failed to send stop signal.");
+    }
+}
+
+// Hook select dropdown changes to check for progress offsets
+document.getElementById('wa-recipient-group').addEventListener('change', async function() {
+    const group = this.value;
+    if (!group) return;
+
+    try {
+        const res = await fetch(`/api/marketing/whatsapp-progress?recipient_group=${group}`);
+        const data = await res.json();
+        if (data.last_index > 0) {
+            const resumeConfirm = confirm(`Found previous dispatch pointer! You already sent to ${data.last_index} contacts in this group.\n\nDo you want to RESUME from contact #${data.last_index + 1}? (Click Cancel to start fresh)`);
+            if (resumeConfirm) {
+                // Instantly submit with resume = true
+                submitWhatsAppCampaign(true);
+            }
+        }
+    } catch(e) {
+        console.error("Error loading campaign pointer:", e);
+    }
+});
+
+function startWaCampaignPolling() {
+    if (waPollInterval) clearInterval(waPollInterval);
+    waPollInterval = setInterval(pollWaCampaignStatus, 3000);
+}
+
+async function pollWaCampaignStatus() {
+    if (!currentCampaignId) return;
+
+    try {
+        const res = await fetch(`/api/marketing/whatsapp-campaign/${currentCampaignId}`);
+        const data = await res.json();
+
+        const dot = document.getElementById('wa-status-dot');
+        const text = document.getElementById('wa-status-text');
+        const progress = document.getElementById('wa-campaign-progress');
+
+        dot.className = `status-dot ${data.status}`;
+        text.textContent = data.status.toUpperCase();
+        progress.textContent = `${data.sent} / ${data.total}`;
+
+        // Render logs
+        if (data.logs) {
+            const logsDiv = document.getElementById('wa-log-lines');
+            logsDiv.innerHTML = '';
+            data.logs.forEach(log => {
+                const line = document.createElement('div');
+                line.className = 'log-line';
+                line.textContent = log;
+                logsDiv.appendChild(line);
+            });
+            const logBox = document.getElementById('wa-log-box');
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        if (data.status === 'done' || data.status === 'failed' || data.status === 'stopping') {
+            const stopBtn = document.getElementById('wa-stop-btn');
+            if (stopBtn) stopBtn.style.display = 'none';
+        }
+
+        if (data.status === 'done' || data.status === 'failed') {
+            clearInterval(waPollInterval);
+            checkWhatsAppStatus();
+        }
+    } catch(e) {
+        // Retry silently
+    }
+}
+
+async function loadAllCampaigns() {
+    const listBody = document.getElementById('campaigns-list-body');
+    listBody.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted);"><span class="led-status running" style="margin-right: 8px;"></span>Loading campaign history...</div>';
+
+    try {
+        const res = await fetch('/api/marketing/campaigns');
+        const campaigns = await res.json();
+
+        if (campaigns.length === 0) {
+            listBody.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted);">No campaign records found.</div>';
+            return;
+        }
+
+        listBody.innerHTML = '';
+        campaigns.forEach(c => {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.flexDirection = 'column';
+            row.style.borderBottom = '1px solid rgba(255, 255, 255, 0.05)';
+
+            // Clean recipient group name
+            let cleanGroup = c.recipient_group;
+            if (cleanGroup.startsWith('dataset_')) cleanGroup = `📚 Dataset #${cleanGroup.replace('dataset_', '')}`;
+            else if (cleanGroup.startsWith('job_')) cleanGroup = `🔍 Scrape #${cleanGroup.replace('job_', '')}`;
+
+            // Formatting variables
+            const isEmail = c.campaign_type === 'email';
+            const statusClass = c.status === 'running' ? 'running' : (c.status === 'done' ? 'done' : 'failed');
+            const percent = c.total_count > 0 ? Math.round((c.sent_count / c.total_count) * 100) : 0;
+
+            const gridRow = document.createElement('div');
+            gridRow.className = 'campaign-grid-row';
+            gridRow.style.cursor = 'pointer';
+            gridRow.onclick = () => toggleCampaignDetails(c.id, row);
+            gridRow.innerHTML = `
+                <div style="font-weight: 600; color: ${isEmail ? '#818cf8' : '#10b981'};">${isEmail ? '✉️ EMAIL' : '💬 WHATSAPP'}</div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="led-status ${statusClass}"></span>
+                    <span style="font-size: 0.8rem; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase;">${c.status}</span>
+                </div>
+                <div style="color: var(--text-primary); font-weight: 500;">
+                    ${cleanGroup}
+                    ${c.email ? `<br><small style="color: var(--text-muted); font-size: 0.75rem;">Dispatched by: ${c.full_name} (${c.email})</small>` : ''}
+                </div>
+                <div>
+                    <div style="font-family: 'Share Tech Mono', monospace; font-size: 1.05rem; color: #39ff14;">${c.sent_count} / ${c.total_count}</div>
+                    <div style="width: 100%; background: #222; height: 4px; border-radius: 2px; margin-top: 4px; overflow: hidden;">
+                        <div style="width: ${percent}%; background: ${isEmail ? '#818cf8' : '#39ff14'}; height: 100%;"></div>
+                    </div>
+                </div>
+                <div style="color: var(--text-muted); font-size: 0.8rem;">
+                    ${new Date(c.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    <br><small style="font-size: 0.7rem;">${new Date(c.created_at).toLocaleDateString()}</small>
+                </div>
+            `;
+
+            const detailPanel = document.createElement('div');
+            detailPanel.id = `detail-${c.id}`;
+            detailPanel.style.display = 'none';
+            detailPanel.style.padding = '0 20px 20px 20px';
+            detailPanel.style.background = '#030509';
+            detailPanel.innerHTML = `
+                <div style="border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 14px; display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+                    <div>
+                        <h5 style="margin-bottom: 8px; color: var(--text-secondary); font-size: 0.85rem;">Live Logs Console:</h5>
+                        <div class="mini-logs" id="logs-list-${c.id}">
+                            Loading console stream...
+                        </div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;">
+                        <div style="text-align: right;">
+                            <span style="color: var(--text-muted); font-size: 0.75rem;">Campaign ID:</span><br>
+                            <code style="font-size: 0.75rem; color: var(--text-secondary);">${c.id}</code>
+                        </div>
+                        ${c.status === 'running' ? `
+                            <button class="btn btn-danger btn-sm" style="margin-top: 8px;" onclick="event.stopPropagation(); stopSpecificCampaign('${c.id}')">⏹️ Terminate</button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+
+            row.appendChild(gridRow);
+            row.appendChild(detailPanel);
+            listBody.appendChild(row);
+        });
+
+    } catch (e) {
+        listBody.innerHTML = '<div style="padding: 40px; text-align: center; color: #ef4444;">Failed to fetch active campaigns dashboard.</div>';
+    }
+}
+
+async function toggleCampaignDetails(campaignId, containerElement) {
+    const detailPanel = document.getElementById(`detail-${campaignId}`);
+    if (detailPanel.style.display === 'block') {
+        detailPanel.style.display = 'none';
+    } else {
+        detailPanel.style.display = 'block';
+        // Fetch live logs for this campaign
+        try {
+            const res = await fetch(`/api/marketing/whatsapp-campaign/${campaignId}`);
+            const data = await res.json();
+            const logsDiv = document.getElementById(`logs-list-${campaignId}`);
+            logsDiv.innerHTML = '';
+            
+            if (data.logs && data.logs.length > 0) {
+                data.logs.forEach(log => {
+                    const line = document.createElement('div');
+                    line.style.borderBottom = '1px solid rgba(255, 255, 255, 0.02)';
+                    line.style.padding = '2px 0';
+                    line.textContent = log;
+                    logsDiv.appendChild(line);
+                });
+                logsDiv.scrollTop = logsDiv.scrollHeight;
+            } else {
+                logsDiv.textContent = 'No logs generated yet.';
+            }
+        } catch(e) {
+            document.getElementById(`logs-list-${campaignId}`).textContent = 'Error stream failure.';
+        }
+    }
+}
+
+async function stopSpecificCampaign(campaignId) {
+    if (!confirm("Are you sure you want to stop this running campaign?")) return;
+    try {
+        const res = await fetch(`/api/marketing/whatsapp-campaign/${campaignId}/stop`, { method: 'POST' });
+        const data = await res.json();
+        alert(data.message || "Stopping campaign...");
+        loadAllCampaigns();
+    } catch(e) {
+        alert("Failed to send stop signal.");
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block title %}{{ dataset.name }} — DataBazaar{% endblock %}
+
+{% block content %}
+<div class="container page-content">
+    <!-- ══ Dataset Header ══ -->
+    <div class="viewer-header">
+        <div class="viewer-info">
+            <h1>{{ dataset.name }}</h1>
+            <p class="viewer-desc">{{ dataset.description or 'Business data scraped from Google Maps.' }}</p>
+            <div class="dataset-meta" style="margin-top: 12px;">
+                <span>📊 {{ dataset.row_count }} rows</span>
+                <span>📁 {{ dataset.category }}</span>
+                {% if dataset.division %}
+                <span>📍 {{ dataset.area or dataset.district or dataset.division }}</span>
+                {% endif %}
+                <span>🪙 {{ dataset.price_credits }} credits</span>
+            </div>
+        </div>
+        <div class="viewer-actions">
+            <a href="{{ url_for('catalog') }}" class="btn btn-secondary btn-sm">← Back</a>
+            {% if current_user %}
+            <button class="btn btn-primary btn-sm" id="btn-view-full" onclick="loadFullData(1)">🔓 View Full Data</button>
+            {% else %}
+            <a href="{{ url_for('login_page') }}" class="btn btn-primary btn-sm">🔐 Login to View</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ══ Data Table ══ -->
+    <div class="data-table-wrapper" id="data-table-wrapper" data-watermark="{{ session.get('email', 'DataBazaar') }}">
+        <!-- Controls -->
+        <div class="data-table-controls">
+            <div class="table-search">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="table-search" placeholder="Search within data..." oninput="handleSearch(this.value)">
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 0.8rem; color: var(--text-muted);" id="view-mode-label">📋 Preview Mode</span>
+            </div>
+        </div>
+
+        <!-- Loading overlay -->
+        <div class="loading-overlay" id="loading-overlay" style="display: none;">
+            <div class="loading-spinner"></div>
+            <span style="color: var(--text-secondary); font-size: 0.9rem;">Loading data...</span>
+        </div>
+
+        <!-- Table -->
+        <div class="data-table-scroll" id="table-scroll">
+            <table class="data-table" id="data-table">
+                <thead id="table-head"></thead>
+                <tbody id="table-body"></tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination" id="pagination" style="display: none;">
+            <div class="pagination-info" id="pagination-info"></div>
+            <div class="pagination-controls">
+                <button id="btn-prev" onclick="changePage(-1)" disabled>←</button>
+                <span class="page-num" id="page-num">1 / 1</span>
+                <button id="btn-next" onclick="changePage(1)">→</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══ Upgrade CTA ══ -->
+    <div class="card" id="upgrade-cta" style="text-align: center; margin-top: 24px; display: none;">
+        <h3 style="margin-bottom: 8px;">🔐 Insufficient Credits</h3>
+        <p style="color: var(--text-secondary); margin-bottom: 16px;">You need credits to view the full dataset. Contact admin to purchase credits.</p>
+        <a href="mailto:admin@databazaar.com" class="btn btn-primary">💳 Buy Credits</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ═══════════════════════════════════════════════════════════
+   DataBazaar — Protected Data Viewer
+   Anti-copy, anti-download, watermarked data table
+   ═══════════════════════════════════════════════════════════ */
+
+const DATASET_ID = {{ dataset.id }};
+let currentPage = 1;
+let totalPages = 1;
+let isFullView = false;
+let searchDebounce = null;
+
+// ── Load preview on page load ──
+document.addEventListener('DOMContentLoaded', () => {
+    loadPreview();
+    setupProtection();
+});
+
+async function loadPreview() {
+    showLoading(true);
+    try {
+        const res = await fetch(`/api/dataset/${DATASET_ID}/preview`);
+        const data = await res.json();
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
+        renderTable(data.columns, data.rows);
+        document.getElementById('view-mode-label').textContent = `📋 Preview (${data.rows.length} of ${data.total_rows} rows)`;
+    } catch (e) {
+        showError('Failed to load preview.');
+    }
+    showLoading(false);
+}
+
+async function loadFullData(page = 1, search = '') {
+    showLoading(true);
+    isFullView = true;
+    try {
+        let url = `/api/dataset/${DATASET_ID}/view?page=${page}`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.need_credits) {
+            document.getElementById('upgrade-cta').style.display = 'block';
+            showLoading(false);
+            return;
+        }
+        if (data.error) {
+            showError(data.error);
+            showLoading(false);
+            return;
+        }
+
+        currentPage = data.page;
+        totalPages = data.total_pages;
+
+        renderTable(data.columns, data.rows);
+        updatePagination(data);
+
+        document.getElementById('view-mode-label').textContent = `🔓 Full View`;
+        document.getElementById('btn-view-full').textContent = '🔓 Full Data Active';
+        document.getElementById('btn-view-full').disabled = true;
+
+        // Update watermark with user email
+        if (data.user_email) {
+            document.getElementById('data-table-wrapper').setAttribute('data-watermark', data.user_email);
+        }
+
+    } catch (e) {
+        showError('Failed to load data.');
+    }
+    showLoading(false);
+}
+
+function renderTable(columns, rows) {
+    const thead = document.getElementById('table-head');
+    const tbody = document.getElementById('table-body');
+
+    // Build header
+    thead.innerHTML = '<tr>' + columns.map(col =>
+        `<th onclick="sortColumn('${col}')">${col} <span class="sort-icon">↕</span></th>`
+    ).join('') + '</tr>';
+
+    // Build rows
+    if (rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${columns.length}" style="text-align: center; padding: 40px; color: var(--text-muted);">No data found</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = rows.map(row =>
+        '<tr>' + columns.map(col => {
+            let val = row[col] || '';
+            let cls = '';
+
+            // Style phone numbers
+            if ((col.toLowerCase().includes('phone') || col.toLowerCase().includes('mobile')) && val.includes('XXX')) {
+                cls = 'masked-phone';
+            }
+            // Style URLs
+            if (val.startsWith('http')) {
+                cls = 'url-cell';
+                val = val.length > 45 ? val.substring(0, 45) + '...' : val;
+            }
+
+            return `<td class="${cls}" title="${row[col] || ''}">${val}</td>`;
+        }).join('') + '</tr>'
+    ).join('');
+}
+
+function updatePagination(data) {
+    const pagination = document.getElementById('pagination');
+    const info = document.getElementById('pagination-info');
+    const pageNum = document.getElementById('page-num');
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+
+    if (data.total_pages > 1) {
+        pagination.style.display = 'flex';
+        info.textContent = `Showing page ${data.page} of ${data.total_pages} (${data.total_rows} total rows)`;
+        pageNum.textContent = `${data.page} / ${data.total_pages}`;
+        btnPrev.disabled = data.page <= 1;
+        btnNext.disabled = data.page >= data.total_pages;
+    } else {
+        pagination.style.display = data.total_rows > 0 ? 'flex' : 'none';
+        info.textContent = `${data.total_rows} rows`;
+        pageNum.textContent = '1 / 1';
+        btnPrev.disabled = true;
+        btnNext.disabled = true;
+    }
+}
+
+function changePage(delta) {
+    const newPage = currentPage + delta;
+    if (newPage >= 1 && newPage <= totalPages) {
+        const search = document.getElementById('table-search').value;
+        loadFullData(newPage, search);
+    }
+}
+
+function handleSearch(value) {
+    if (!isFullView) return;
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+        loadFullData(1, value);
+    }, 500);
+}
+
+function sortColumn(col) {
+    if (!isFullView) return;
+    // Simple sort toggle (handled server-side for full data)
+    const search = document.getElementById('table-search').value;
+    loadFullData(1, search);
+}
+
+function showLoading(show) {
+    document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
+}
+
+function showError(msg) {
+    const tbody = document.getElementById('table-body');
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 40px; color: var(--accent-danger);">❌ ${msg}</td></tr>`;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   ANTI-COPY PROTECTION
+   ═══════════════════════════════════════════════════════════ */
+
+function setupProtection() {
+    const wrapper = document.getElementById('data-table-wrapper');
+
+    // Disable right-click on data table
+    wrapper.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        return false;
+    });
+
+    // Disable text selection on data table
+    wrapper.addEventListener('selectstart', e => {
+        e.preventDefault();
+        return false;
+    });
+
+    // Disable copy shortcuts
+    document.addEventListener('keydown', e => {
+        // Block Ctrl+C, Ctrl+A, Ctrl+S, Ctrl+P on data table
+        if ((e.ctrlKey || e.metaKey) && ['c', 'a', 's', 'p', 'u'].includes(e.key.toLowerCase())) {
+            if (wrapper.contains(document.activeElement) || wrapper.matches(':hover')) {
+                e.preventDefault();
+                return false;
+            }
+        }
+
+        // Block F12 and Ctrl+Shift+I (Dev tools)
+        if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'i')) {
+            e.preventDefault();
+            return false;
+        }
+    });
+
+    // Disable drag
+    wrapper.addEventListener('dragstart', e => {
+        e.preventDefault();
+        return false;
+    });
+
+    // Block Print Screen (limited effectiveness)
+    document.addEventListener('keyup', e => {
+        if (e.key === 'PrintScreen') {
+            navigator.clipboard.writeText('').catch(() => {});
+        }
+    });
+}
+</script>
+{% endblock %}

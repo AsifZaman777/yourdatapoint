@@ -1,0 +1,7 @@
+selenium
+pandas
+openpyxl
+webdriver-manager
+flask
+werkzeug
+flask-cors

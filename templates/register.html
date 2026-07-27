@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Create Account — DataBazaar{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <div class="card auth-card">
+        <h1>Get Started</h1>
+        <p class="auth-subtitle">Create your account and get 5 free credits</p>
+
+        <form action="{{ url_for('auth_register') }}" method="POST">
+            <div class="form-group">
+                <label for="full_name">Full Name</label>
+                <input type="text" id="full_name" name="full_name" class="form-control" placeholder="Your full name" required>
+            </div>
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" class="form-control" placeholder="you@example.com" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" class="form-control" placeholder="Min 6 characters" minlength="6" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-lg">Create Account</button>
+        </form>
+
+        <p class="auth-footer">
+            Already have an account? <a href="{{ url_for('login_page') }}">Login here</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

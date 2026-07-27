@@ -1,0 +1,30 @@
+[11:13:00] [wa_camp_1785129180] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[11:13:00] [wa_camp_1785129180] [WHATSAPP] Starting from contact index: 0 | Total contacts: 410
+[11:13:39] [wa_camp_1785129180] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[11:13:39] [wa_camp_1785129180] [WHATSAPP] [1/410] Opening chat for (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬ (88001705025532)...
+[11:14:18] [wa_camp_1785129180] [WHATSAPP] ⚠️ Failed to load chat element for (সাফল্য কোচিং)টোলারবাগ 2 নং গেট,১০/৬. Skipping...
+[11:14:18] [wa_camp_1785129180] [WHATSAPP] [2/410] Opening chat for 10 Minute School English Centre Mirpur (88001896057972)...
+[11:14:57] [wa_camp_1785129180] [WHATSAPP] ⚠️ Failed to load chat element for 10 Minute School English Centre Mirpur. Skipping...
+[11:14:57] [wa_camp_1785129180] [WHATSAPP] [3/410] Opening chat for 10 Minute School English Centre Moghbazar (88001844616778)...
+[11:15:00] [wa_camp_1785129180] [WHATSAPP] Fatal Dispatcher Thread Exception: Message: invalid session id; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#invalidsessionidexception
+Stacktrace:
+	chromedriver!GetHandleVerifier [0x7ff79b420d25+155a5]
+	chromedriver!GetHandleVerifier [0x7ff79b420d80+15600]
+	chromedriver!(No symbol) [0x7ff79af75736]
+	chromedriver!(No symbol) [0x7ff79afc1ed6]
+	chromedriver!(No symbol) [0x7ff79aff90d2]
+	chromedriver!(No symbol) [0x7ff79aff2ef2]
+	chromedriver!(No symbol) [0x7ff79aff26b2]
+	chromedriver!(No symbol) [0x7ff79af3de1b]
+	chromedriver!(No symbol) [0x7ff79af3e472]
+	chromedriver!(No symbol) [0x7ff79af3ea35]
+	chromedriver!GetHandleVerifier [0x7ff79ba06431+5facb1]
+	chromedriver!GetHandleVerifier [0x7ff79ba00a9b+5f531b]
+	chromedriver!GetHandleVerifier [0x7ff79ba25865+61a0e5]
+	chromedriver!GetHandleVerifier [0x7ff79b43dace+3234e]
+	chromedriver!GetHandleVerifier [0x7ff79b44661c+3ae9c]
+	chromedriver!(No symbol) [0x7ff79af3d39c]
+	chromedriver!GetHandleVerifier [0x7ff79bbe3d88+7d8608]
+	KERNEL32!BaseThreadInitThunk [0x7ffbd444257d+1d]
+	ntdll!RtlUserThreadStart [0x7ffbd502af28+28]
+
