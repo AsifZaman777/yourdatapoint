@@ -24,6 +24,40 @@ SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "asifdev777@gmail.com")
 SUPERADMIN_PASSWORD = os.getenv("SUPERADMIN_PASSWORD", "admin123")
 SUPERADMIN_NAME = os.getenv("SUPERADMIN_NAME", "Asif Zaman (Superadmin)")
 
+# ── bKash & Pathao Pay Pricing Configuration ───────────────
+BKASH_NUMBER = os.getenv("BKASH_NUMBER", "+8801824500704")
+BKASH_ACCOUNT_TYPE = os.getenv("BKASH_ACCOUNT_TYPE", "Personal (Send Money)")
+
+PATHAO_NUMBER = os.getenv("PATHAO_NUMBER", "+8801824500704")
+PATHAO_ACCOUNT_TYPE = os.getenv("PATHAO_ACCOUNT_TYPE", "Personal / Merchant")
+
+CREDIT_PACKAGES = [
+    {
+        "id": "starter",
+        "name": "Starter Lead Pack",
+        "credits": 50,
+        "price_bdt": 500,
+        "popular": False,
+        "description": "Ideal for small outreach campaigns & testing."
+    },
+    {
+        "id": "pro",
+        "name": "Pro Growth Pack",
+        "credits": 200,
+        "price_bdt": 1500,
+        "popular": True,
+        "description": "Best value! Power your WhatsApp & Email campaigns."
+    },
+    {
+        "id": "enterprise",
+        "name": "Enterprise Mega Pack",
+        "credits": 500,
+        "price_bdt": 3000,
+        "popular": False,
+        "description": "Maximum credits for high-volume agency scraping."
+    }
+]
+
 # ── Dataset Categories ───────────────────────────────────
 CATEGORIES = [
     "Coaching Center",

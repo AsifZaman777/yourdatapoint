@@ -3,6 +3,9 @@ import { EMAIL_TEMPLATES, EMAIL_PALETTES } from './emailTemplates';
 import { WHATSAPP_TEMPLATES } from './whatsappTemplates';
 import { TRANSLATIONS } from './translations';
 import heroDashboardImg from './assets/hero_dashboard.png';
+import bkashLogoImg from './assets/logo/bkash-logo.png';
+import pathaoLogoImg from './assets/logo/pathao-pay.png';
+import pathaoQrImg from './assets/QR/pathao-qr.jpg';
 import {
   BarChart3,
   Database,
@@ -48,7 +51,18 @@ import {
   Ban,
   UserCheck,
   UserX,
-  QrCode
+  QrCode,
+  CreditCard,
+  ShoppingCart,
+  Copy,
+  XCircle,
+  Inbox,
+  FileSpreadsheet,
+  FolderKanban,
+  ArrowRight,
+  ArrowLeft,
+  ExternalLink,
+  Eye
 } from 'lucide-react';
 
 const getApiBase = () => {
@@ -295,6 +309,32 @@ export default function App() {
   const [liveMapImage, setLiveMapImage] = useState(null);
   const [autoScrollScraper, setAutoScrollScraper] = useState(true);
   const scraperTerminalRef = useRef(null);
+  // Payment Module states
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentConfig, setPaymentConfig] = useState({ bkash_number: '', bkash_account_type: '', bkash_qr_url: '', pathao_number: '', pathao_account_type: '', pathao_qr_url: '', packages: [] });
+  const [selectedPackage, setSelectedPackage] = useState(null);
+  const [customCredits, setCustomCredits] = useState(100);
+  const [myPaymentRequests, setMyPaymentRequests] = useState([]);
+  const [adminPaymentRequests, setAdminPaymentRequests] = useState([]);
+  const [paymentModalTab, setPaymentModalTab] = useState('buy'); // 'buy' or 'history'
+
+  // Admin Payment Settings States
+  const [adminBkashNumber, setAdminBkashNumber] = useState('');
+  const [adminBkashAccountType, setAdminBkashAccountType] = useState('');
+  const [adminBkashQrFile, setAdminBkashQrFile] = useState(null);
+  const [adminPathaoNumber, setAdminPathaoNumber] = useState('');
+  const [adminPathaoAccountType, setAdminPathaoAccountType] = useState('');
+  const [adminPathaoQrFile, setAdminPathaoQrFile] = useState(null);
+
+  // Stepped Payment Wizard States
+  const [paymentStep, setPaymentStep] = useState(1); // 1: Package & Method, 2: Pay & QR, 3: Details & TrxID, 4: Admin Approval
+  const [selectedMethod, setSelectedMethod] = useState('bkash'); // 'bkash' or 'pathao_pay'
+  const [copiedNumber, setCopiedNumber] = useState(false);
+  const [refUserName, setRefUserName] = useState('');
+  const [refUserEmail, setRefUserEmail] = useState('');
+  const [refUserPhone, setRefUserPhone] = useState('');
+  const [refTrxId, setRefTrxId] = useState('');
+
   // Marketing states
   const [recipientGroups, setRecipientGroups] = useState([]);
   const [waRecipientGroup, setWaRecipientGroup] = useState('');
@@ -751,14 +791,18 @@ Please return ONLY the updated template text.`;
   useEffect(() => {
     loadConfig();
     loadDatasets();
+    loadPaymentConfig();
     if (user) {
       loadJobs();
       checkWhatsAppStatus();
       loadCampaigns();
       loadDashboardStats();
+      loadMyPaymentRequests();
       if (user && (user.role === 'admin' || user.role === 'superadmin')) {
         loadAdminUsers();
         loadAdminViolations();
+        loadAdminPromotionRequests();
+        loadAdminPaymentRequests();
       }
     }
   }, [user]);
@@ -1436,6 +1480,168 @@ Please return ONLY the updated template text.`;
     }
   };
 
+  // Payment API Loaders & Handlers
+  const loadPaymentConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/payments/packages-config`);
+      const data = await res.json();
+      if (res.ok) {
+        setPaymentConfig(data);
+        setAdminBkashNumber(data.bkash_number || '');
+        setAdminBkashAccountType(data.bkash_account_type || '');
+        setAdminPathaoNumber(data.pathao_number || '');
+        setAdminPathaoAccountType(data.pathao_account_type || '');
+      }
+    } catch {}
+  };
+
+  const handleSavePaymentSettings = async (e) => {
+    e.preventDefault();
+    const formData = new FormData();
+    formData.append('bkash_number', adminBkashNumber);
+    formData.append('bkash_account_type', adminBkashAccountType);
+    formData.append('pathao_number', adminPathaoNumber);
+    formData.append('pathao_account_type', adminPathaoAccountType);
+    if (adminBkashQrFile) formData.append('bkash_qr_file', adminBkashQrFile);
+    if (adminPathaoQrFile) formData.append('pathao_qr_file', adminPathaoQrFile);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/payment-settings`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || 'Payment gateway settings saved successfully!', 'success');
+        loadPaymentConfig();
+      } else {
+        showToast(data.detail || 'Failed to save payment gateway settings.', 'error');
+      }
+    } catch {
+      showToast('Error saving payment settings.', 'error');
+    }
+  };
+
+  const loadMyPaymentRequests = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/payments/my-requests`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) setMyPaymentRequests(data);
+    } catch {}
+  };
+
+  const loadAdminPaymentRequests = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/payment-requests`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) setAdminPaymentRequests(data);
+    } catch {}
+  };
+
+  const handlePaymentSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!refUserPhone || !refTrxId) {
+      showToast('Please enter your Sender Phone Number and Transaction ID (TrxID).', 'warning');
+      return;
+    }
+
+    let pkgName = 'Custom Credit Pack';
+    let creds = parseInt(customCredits) || 50;
+    let bdt = creds * 10;
+
+    if (selectedPackage && selectedPackage !== 'custom') {
+      pkgName = selectedPackage.name;
+      creds = selectedPackage.credits;
+      bdt = selectedPackage.price_bdt;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/payments/submit-request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          package_name: pkgName,
+          credits_requested: creds,
+          amount_bdt: bdt,
+          payment_method: selectedMethod,
+          user_name: refUserName || user?.full_name || user?.email,
+          bkash_number: refUserPhone,
+          transaction_id: refTrxId
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || 'Payment proof submitted! Moving to verification step.', 'success');
+        setPaymentStep(4);
+        loadMyPaymentRequests();
+      } else {
+        showToast(data.detail || 'Submission failed.', 'error');
+      }
+    } catch {
+      showToast('Error submitting payment proof.', 'error');
+    }
+  };
+
+  const approveAdminPayment = async (requestId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/payment-requests/${requestId}/approve`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || 'Payment approved & credits added!', 'success');
+        loadAdminPaymentRequests();
+        loadAdminUsers();
+        fetchUserProfile();
+      } else {
+        showToast(data.detail || 'Approval failed.', 'error');
+      }
+    } catch {
+      showToast('Error approving payment.', 'error');
+    }
+  };
+
+  const rejectAdminPayment = async (requestId) => {
+    showPrompt(
+      "Reject Payment Request",
+      "Specify rejection reason for customer (e.g., Invalid TrxID or Amount mismatch):",
+      "Transaction ID mismatch or invalid payment",
+      async (reason) => {
+        if (!reason) return;
+        const formData = new FormData();
+        formData.append('rejection_reason', reason);
+
+        try {
+          const res = await fetch(`${API_BASE}/api/admin/payment-requests/${requestId}/reject`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+          });
+          const data = await res.json();
+          if (res.ok) {
+            showToast('Payment request rejected.', 'info');
+            loadAdminPaymentRequests();
+          } else {
+            showToast(data.detail || 'Rejection failed.', 'error');
+          }
+        } catch {
+          showToast('Error rejecting payment.', 'error');
+        }
+      }
+    );
+  };
+
   // Admin upload dataset
   const handleAdminUploadSubmit = async (e) => {
     e.preventDefault();
@@ -1992,8 +2198,14 @@ Please return ONLY the updated template text.`;
               {(user.role === 'admin' || user.role === 'superadmin') && (
                 <>
                   <div className="sidebar-section-title">Administration</div>
-                  <div className={`sidebar-item ${currentTab === 'admin' ? 'active' : ''}`} onClick={() => { setCurrentTab('admin'); setAdminSubTab('datasets'); }}>
-                    <Settings size={16} /> Admin Panel
+                  <div className={`sidebar-item ${currentTab === 'admin' && adminSubTab === 'datasets' ? 'active' : ''}`} onClick={() => { setCurrentTab('admin'); setAdminSubTab('datasets'); }}>
+                    <Settings size={16} /> Admin Overview
+                  </div>
+                  <div className={`sidebar-item ${currentTab === 'admin' && adminSubTab === 'payments' ? 'active' : ''}`} onClick={() => { setCurrentTab('admin'); setAdminSubTab('payments'); loadAdminPaymentRequests(); }}>
+                    <Coins size={16} style={{ color: '#eab308' }} /> Payment Verification ({adminPaymentRequests.filter(p => p.status === 'pending').length})
+                  </div>
+                  <div className={`sidebar-item ${currentTab === 'admin' && adminSubTab === 'gateway' ? 'active' : ''}`} onClick={() => { setCurrentTab('admin'); setAdminSubTab('gateway'); loadPaymentConfig(); }}>
+                    <Settings size={16} style={{ color: '#06b6d4' }} /> Gateway & QR Settings
                   </div>
                   <div className={`sidebar-item ${currentTab === 'users' ? 'active' : ''}`} onClick={() => { setCurrentTab('users'); loadAdminUsers(); }}>
                     <User size={16} /> Customers & Credits
@@ -2014,6 +2226,9 @@ Please return ONLY the updated template text.`;
               <div className={`sidebar-item ${currentTab === 'marketing' ? 'active' : ''}`} onClick={() => { setCurrentTab('marketing'); }}>
                 <Send size={16} /> Marketing Portal
               </div>
+              <div className={`sidebar-item ${currentTab === 'upgrade' ? 'active' : ''}`} onClick={() => { setCurrentTab('upgrade'); loadPaymentConfig(); loadMyPaymentRequests(); }}>
+                <Zap size={16} style={{ color: '#eab308' }} /> Upgrade Package
+              </div>
             </div>
 
             <div className="sidebar-footer">
@@ -2033,10 +2248,15 @@ Please return ONLY the updated template text.`;
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px', wordBreak: 'break-all' }}>
                 <User size={12} style={{ display: 'inline', opacity: 0.8, marginRight: '4px' }} /> {user.email}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.85rem' }}>
-                  <Coins size={14} style={{ color: '#eab308', verticalAlign: 'middle', marginRight: '4px' }} /> <strong className="digital-text">{user.credits}</strong> cr
-                </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <button 
+                  type="button"
+                  className="btn btn-primary btn-sm" 
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #eab308, #d97706)', color: '#000', fontWeight: 'bold', border: 'none' }}
+                  onClick={() => { setShowPaymentModal(true); loadPaymentConfig(); loadMyPaymentRequests(); }}
+                >
+                  <Coins size={14} /> {user.credits} CR ➕ Buy
+                </button>
                 <button className="btn btn-secondary btn-sm" onClick={handleLogout} title="Logout">
                   <LogOut size={13} />
                 </button>
@@ -2646,7 +2866,7 @@ Please return ONLY the updated template text.`;
                     onClick={() => setCatalogTab('public')}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem' }}
                   >
-                    <Globe size={16} /> 🌐 Public Datasets ({datasets.length})
+                    <Globe size={16} /> Public Datasets Catalog ({datasets.length})
                   </button>
                   <button 
                     type="button"
@@ -2654,7 +2874,7 @@ Please return ONLY the updated template text.`;
                     onClick={() => setCatalogTab('private')}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem' }}
                   >
-                    <Lock size={16} /> 🔒 My Private Datasets ({scraperJobs.filter(j => j.status === 'done').length})
+                    <Lock size={16} /> My Private Datasets ({scraperJobs.filter(j => j.status === 'done').length})
                   </button>
                 </div>
 
@@ -2720,7 +2940,7 @@ Please return ONLY the updated template text.`;
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '14px' }}>
                             <span className="digital-text" style={{ fontSize: '1.1rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Coins size={15} style={{ color: '#eab308' }} /> {ds.price_credits}</span>
-                            <button className="btn btn-secondary btn-sm" onClick={() => openDatasetDetails(ds.id, 1)}>View Dataset</button>
+                            <button className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }} onClick={() => openDatasetDetails(ds.id, 1)}><Eye size={14} /> View Dataset</button>
                           </div>
                         </div>
                       ))}
@@ -2772,7 +2992,7 @@ Please return ONLY the updated template text.`;
                                   style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
                                   onClick={() => openDatasetDetails(`job_${job.id}`, 1)}
                                 >
-                                  <Search size={13} /> View Dataset
+                                  <Eye size={13} /> View Dataset
                                 </button>
 
                                 <button 
@@ -2794,12 +3014,12 @@ Please return ONLY the updated template text.`;
 
                               {/* Promotion Request / Promote Controls */}
                               {job.promotion_status === 'pending' ? (
-                                <button type="button" className="btn btn-secondary btn-sm" disabled style={{ width: '100%', opacity: 0.8, color: '#eab308', borderColor: '#eab308' }}>
-                                  <Clock size={14} /> ⏳ Promotion Request Pending
+                                <button type="button" className="btn btn-secondary btn-sm" disabled style={{ width: '100%', opacity: 0.8, color: '#eab308', borderColor: '#eab308', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                                  <Clock size={14} /> Promotion Request Pending
                                 </button>
                               ) : job.promotion_status === 'approved' ? (
-                                <button type="button" className="btn btn-secondary btn-sm" disabled style={{ width: '100%', color: '#22c55e', borderColor: '#22c55e' }}>
-                                  <CheckCircle2 size={14} /> ✅ Published to Public Catalog
+                                <button type="button" className="btn btn-secondary btn-sm" disabled style={{ width: '100%', color: '#22c55e', borderColor: '#22c55e', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                                  <CheckCircle2 size={14} /> Published to Public Catalog
                                 </button>
                               ) : (user?.role === 'admin' || user?.role === 'superadmin') ? (
                                 <button 
@@ -4017,28 +4237,235 @@ Please return ONLY the updated template text.`;
           <div>
             <div className="tabs">
               <button className={`tab-btn ${adminSubTab === 'datasets' ? 'active' : ''}`} onClick={() => setAdminSubTab('datasets')}>📁 Manage Datasets</button>
+              <button className={`tab-btn ${adminSubTab === 'payments' ? 'active' : ''}`} onClick={() => { setAdminSubTab('payments'); loadAdminPaymentRequests(); }}>
+                💳 bKash & Pathao Payments ({adminPaymentRequests.filter(p => p.status === 'pending').length})
+              </button>
+              <button className={`tab-btn ${adminSubTab === 'gateway' ? 'active' : ''}`} onClick={() => setAdminSubTab('gateway')}>
+                ⚙️ Payment Gateway & QR Settings
+              </button>
               <button className={`tab-btn ${adminSubTab === 'requests' ? 'active' : ''}`} onClick={() => { setAdminSubTab('requests'); loadAdminPromotionRequests(); }}>
                 📥 Promotion Requests ({adminPromotionRequests.length})
               </button>
               <button className={`tab-btn ${adminSubTab === 'users' ? 'active' : ''}`} onClick={() => { setAdminSubTab('users'); loadAdminUsers(); }}>👥 Customers & Credits</button>
             </div>
 
-            {/* Pane: Promotion Requests */}
-            {adminSubTab === 'requests' && (
+            {/* Pane: Payment Approvals */}
+            {adminSubTab === 'payments' && (
               <div className="card">
                 <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  📥 Customer Promotion Requests Queue
+                  💳 bKash & Pathao Pay Payment Approval Queue
                 </h3>
                 <div style={{ overflowX: 'auto' }}>
                   <table className="admin-table">
                     <thead>
                       <tr>
-                        <th>Job #</th>
+                        <th>ID</th>
+                        <th>Customer</th>
+                        <th>Method</th>
+                        <th>Package</th>
+                        <th>Credits</th>
+                        <th>Amount BDT</th>
+                        <th>Sender Phone</th>
+                        <th>TrxID</th>
+                        <th>Status</th>
+                        <th>Submitted At</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminPaymentRequests.map((req) => (
+                        <tr key={req.id}>
+                          <td>#{req.id}</td>
+                          <td>
+                            <div><strong>{req.user_name || req.full_name}</strong></div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{req.email}</div>
+                          </td>
+                          <td>
+                            <span style={{ 
+                              background: (req.payment_method || 'bkash') === 'bkash' ? 'rgba(226, 19, 110, 0.2)' : 'rgba(239, 68, 68, 0.2)', 
+                              color: (req.payment_method || 'bkash') === 'bkash' ? '#e2136e' : '#ef4444', 
+                              padding: '3px 8px', 
+                              borderRadius: '4px', 
+                              fontSize: '0.75rem', 
+                              fontWeight: 'bold' 
+                            }}>
+                              {(req.payment_method || 'bkash').toUpperCase()}
+                            </span>
+                          </td>
+                          <td>{req.package_name}</td>
+                          <td><span className="digital-text" style={{ color: '#eab308' }}>+{req.credits_requested}</span> CR</td>
+                          <td><strong>৳{req.amount_bdt}</strong></td>
+                          <td>{req.bkash_number}</td>
+                          <td><strong style={{ color: '#06b6d4', letterSpacing: '1px' }}>{req.transaction_id}</strong></td>
+                          <td>
+                            {req.status === 'pending' ? (
+                              <span style={{ color: '#eab308', background: 'rgba(234, 179, 8, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>⏳ Pending</span>
+                            ) : req.status === 'approved' ? (
+                              <span style={{ color: '#22c55e', background: 'rgba(34, 197, 94, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>✅ Approved</span>
+                            ) : (
+                              <span style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>❌ Rejected</span>
+                            )}
+                          </td>
+                          <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{req.created_at}</td>
+                          <td>
+                            {req.status === 'pending' ? (
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <button 
+                                  className="btn btn-primary btn-sm"
+                                  onClick={() => approveAdminPayment(req.id)}
+                                >
+                                  ✅ Approve & Add Credits
+                                </button>
+                                <button 
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => rejectAdminPayment(req.id)}
+                                >
+                                  ❌ Reject
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Processed</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {adminPaymentRequests.length === 0 && (
+                        <tr>
+                          <td colSpan="11" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                            No payment requests found.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Pane: Payment Gateway & QR Settings */}
+            {adminSubTab === 'gateway' && (
+              <div className="card">
+                <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px', color: '#06b6d4' }}>
+                  ⚙️ Payment Gateway Numbers, Account Types & QR Code Uploader
+                </h3>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
+                  Configure live bKash and Pathao Pay numbers, account types, and upload custom QR code images for your customers.
+                </p>
+
+                <form onSubmit={handleSavePaymentSettings}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
+                    {/* bKash Settings Box */}
+                    <div style={{ background: 'rgba(226, 19, 110, 0.05)', border: '1px solid #e2136e', padding: '20px', borderRadius: '12px' }}>
+                      <h4 style={{ color: '#e2136e', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <img src={bkashLogoImg} alt="bKash" style={{ height: '24px' }} /> bKash Gateway Settings
+                      </h4>
+
+                      <div className="form-group" style={{ marginBottom: '14px' }}>
+                        <label>bKash Phone Number</label>
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          value={adminBkashNumber} 
+                          onChange={(e) => setAdminBkashNumber(e.target.value)} 
+                          placeholder="Enter bKash phone number..." 
+                        />
+                      </div>
+
+                      <div className="form-group" style={{ marginBottom: '14px' }}>
+                        <label>bKash Account Type</label>
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          value={adminBkashAccountType} 
+                          onChange={(e) => setAdminBkashAccountType(e.target.value)} 
+                          placeholder="e.g. Personal (Send Money)" 
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Upload New bKash QR Code (Image)</label>
+                        <input 
+                          type="file" 
+                          className="form-control" 
+                          accept="image/*" 
+                          onChange={(e) => setAdminBkashQrFile(e.target.files[0])} 
+                        />
+                        {paymentConfig.bkash_qr_url && (
+                          <div style={{ marginTop: '10px', fontSize: '0.8rem', color: '#22c55e' }}>
+                            ✓ Current QR: <a href={`${API_BASE}${paymentConfig.bkash_qr_url}`} target="_blank" rel="noreferrer" style={{ color: '#06b6d4' }}>View Current bKash QR Image</a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Pathao Pay Settings Box */}
+                    <div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid #ef4444', padding: '20px', borderRadius: '12px' }}>
+                      <h4 style={{ color: '#ef4444', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <img src={pathaoLogoImg} alt="Pathao Pay" style={{ height: '24px' }} /> Pathao Pay Gateway Settings
+                      </h4>
+
+                      <div className="form-group" style={{ marginBottom: '14px' }}>
+                        <label>Pathao Pay Phone Number</label>
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          value={adminPathaoNumber} 
+                          onChange={(e) => setAdminPathaoNumber(e.target.value)} 
+                          placeholder="Enter Pathao Pay phone number..." 
+                        />
+                      </div>
+
+                      <div className="form-group" style={{ marginBottom: '14px' }}>
+                        <label>Pathao Pay Account Type</label>
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          value={adminPathaoAccountType} 
+                          onChange={(e) => setAdminPathaoAccountType(e.target.value)} 
+                          placeholder="e.g. Personal / Merchant" 
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Upload New Pathao Pay QR Code (Image)</label>
+                        <input 
+                          type="file" 
+                          className="form-control" 
+                          accept="image/*" 
+                          onChange={(e) => setAdminPathaoQrFile(e.target.files[0])} 
+                        />
+                        {paymentConfig.pathao_qr_url && (
+                          <div style={{ marginTop: '10px', fontSize: '0.8rem', color: '#22c55e' }}>
+                            ✓ Current QR: <a href={`${API_BASE}${paymentConfig.pathao_qr_url}`} target="_blank" rel="noreferrer" style={{ color: '#06b6d4' }}>View Current Pathao QR Image</a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button className="btn btn-primary" style={{ padding: '12px 30px', fontSize: '1rem' }} type="submit">
+                    💾 Save Payment Gateway Settings & QR Codes
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* Pane: Promotion Requests */}
+            {adminSubTab === 'requests' && (
+              <div className="card">
+                <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  📥 Dataset Promotion Requests Queue
+                </h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Job ID</th>
                         <th>User Email</th>
-                        <th>Scraped Query</th>
-                        <th>Proposed Dataset Name</th>
+                        <th>Original Query</th>
+                        <th>Proposed Name</th>
                         <th>Proposed Category</th>
-                        <th>Leads Parsed</th>
+                        <th>Total Rows</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
@@ -4046,22 +4473,22 @@ Please return ONLY the updated template text.`;
                       {adminPromotionRequests.map((req) => (
                         <tr key={req.id}>
                           <td>#{req.id}</td>
-                          <td><strong>{req.email || req.full_name}</strong></td>
-                          <td>{req.query}</td>
-                          <td><strong style={{ color: '#06b6d4' }}>{req.proposed_name || req.query}</strong></td>
-                          <td>{req.proposed_category || 'Coaching Center'}</td>
-                          <td><span className="digital-text">{req.result_count || 0}</span> rows</td>
+                          <td>{req.user_email || 'Unknown User'}</td>
+                          <td><strong>{req.query}</strong></td>
+                          <td><span style={{ color: '#06b6d4' }}>{req.proposed_name || req.query}</span></td>
+                          <td><span style={{ color: '#eab308' }}>{req.proposed_category || 'General'}</span></td>
+                          <td><span className="digital-text">{req.row_count}</span> rows</td>
                           <td>
                             <div style={{ display: 'flex', gap: '8px' }}>
                               <button 
                                 className="btn btn-primary btn-sm"
-                                onClick={() => approvePromotionRequest(req.id)}
+                                onClick={() => approveAdminPromotionRequest(req.id)}
                               >
                                 ✅ Approve & Publish
                               </button>
                               <button 
                                 className="btn btn-secondary btn-sm"
-                                onClick={() => rejectPromotionRequest(req.id)}
+                                onClick={() => rejectAdminPromotionRequest(req.id)}
                               >
                                 ❌ Reject
                               </button>
@@ -4072,7 +4499,7 @@ Please return ONLY the updated template text.`;
                       {adminPromotionRequests.length === 0 && (
                         <tr>
                           <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
-                            No pending promotion requests from users.
+                            No dataset promotion requests pending approval.
                           </td>
                         </tr>
                       )}
@@ -4182,6 +4609,159 @@ Please return ONLY the updated template text.`;
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ══ TAB: UPGRADE PACKAGE MODULE ══ */}
+        {currentTab === 'upgrade' && (
+          <div>
+            {/* Header Banner */}
+            <div className="card glowing-panel" style={{ borderColor: '#eab308', marginBottom: '28px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                <div>
+                  <span style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#eab308', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold', border: '1px solid rgba(234, 179, 8, 0.3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Zap size={14} /> UPGRADE MEMBERSHIP & CREDITS
+                  </span>
+                  <h2 style={{ color: '#fff', marginTop: '10px', marginBottom: '6px' }}>
+                    Scale Your Lead Scraper & Outreach Campaigns
+                  </h2>
+                  <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem' }}>
+                    Purchase credit packages to unlock full dataset phone numbers, export Excel leads, and launch automated WhatsApp/Email campaigns.
+                  </p>
+                </div>
+
+                <div style={{ background: 'rgba(0,0,0,0.4)', padding: '16px 24px', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>CURRENT BALANCE</div>
+                  <div style={{ fontSize: '1.8rem', fontWeight: '900', color: '#eab308', margin: '4px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                    <Coins size={22} /> {user?.credits || 0} CR
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                    <CheckCircle2 size={12} /> Account Active
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Package Selection Grid */}
+            <h3 style={{ color: '#fff', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <ShoppingCart size={22} style={{ color: '#06b6d4' }} /> Select Your Preferred Upgrade Package
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+              {paymentConfig.packages?.map(pkg => (
+                <div 
+                  key={pkg.id} 
+                  className={`card ${pkg.popular ? 'glowing-panel' : ''}`}
+                  style={{ 
+                    border: pkg.popular ? '2px solid #eab308' : '1px solid var(--border-subtle)',
+                    background: pkg.popular ? 'rgba(234, 179, 8, 0.05)' : 'rgba(255,255,255,0.02)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    position: 'relative',
+                    padding: '24px'
+                  }}
+                >
+                  {pkg.popular && (
+                    <span style={{ position: 'absolute', top: '-12px', right: '16px', background: '#eab308', color: '#000', fontSize: '0.7rem', fontWeight: '900', padding: '3px 10px', borderRadius: '12px' }}>
+                      MOST POPULAR
+                    </span>
+                  )}
+
+                  <div>
+                    <h4 style={{ color: '#fff', marginBottom: '8px' }}>{pkg.name}</h4>
+                    <div style={{ fontSize: '2rem', fontWeight: '900', color: '#eab308', margin: '10px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Coins size={24} /> {pkg.credits} <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Credits</span>
+                    </div>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fff', marginBottom: '12px' }}>
+                      ৳{pkg.price_bdt} <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>BDT</span>
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>
+                      {pkg.description}
+                    </p>
+                  </div>
+
+                  <button 
+                    className="btn btn-primary" 
+                    style={{ width: '100%', padding: '12px', background: pkg.popular ? 'linear-gradient(135deg, #eab308, #d97706)' : 'linear-gradient(135deg, #06b6d4, #3b82f6)', color: pkg.popular ? '#000' : '#fff', fontWeight: 'bold', border: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                    onClick={() => {
+                      setSelectedPackage(pkg);
+                      setPaymentStep(1);
+                      setShowPaymentModal(true);
+                    }}
+                  >
+                    <Sparkles size={16} /> Upgrade to {pkg.name}
+                  </button>
+                </div>
+              ))}
+
+              {/* Custom Upgrade Package Card */}
+              <div className="card" style={{ border: '1px solid var(--accent-blue)', background: 'rgba(6, 182, 212, 0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '24px' }}>
+                <div>
+                  <h4 style={{ color: '#fff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}><Settings size={18} /> Custom Upgrade</h4>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px' }}>Enter the exact credit amount your team requires:</p>
+                  
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <input 
+                      type="number" 
+                      className="form-control"
+                      value={customCredits}
+                      onChange={(e) => setCustomCredits(e.target.value)}
+                      min="10"
+                      placeholder="Enter credits..."
+                    />
+                  </div>
+
+                  <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#06b6d4', marginBottom: '16px' }}>
+                    ৳{(parseInt(customCredits) || 0) * 10} BDT
+                  </div>
+                </div>
+
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ width: '100%', padding: '12px', borderColor: '#06b6d4', color: '#06b6d4', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                  onClick={() => {
+                    setSelectedPackage('custom');
+                    setPaymentStep(1);
+                    setShowPaymentModal(true);
+                  }}
+                >
+                  <Zap size={16} /> Purchase Custom Credits
+                </button>
+              </div>
+            </div>
+
+            {/* Package Benefits & Instructions */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+              <div className="card" style={{ background: 'rgba(255,255,255,0.02)', padding: '20px' }}>
+                <h4 style={{ color: '#fff', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <CheckCircle2 size={18} style={{ color: '#22c55e' }} /> Package Member Benefits
+                </h4>
+                <ul style={{ paddingLeft: '0', listStyle: 'none', color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '2' }}>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Unlock full leads catalog with real phone numbers</li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Export scraped leads directly into Excel files</li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Send automated WhatsApp marketing messages</li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Send custom HTML email marketing campaigns</li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Credits never expire and roll over automatically</li>
+                </ul>
+              </div>
+
+              <div className="card" style={{ background: 'rgba(255,255,255,0.02)', padding: '20px' }}>
+                <h4 style={{ color: '#fff', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Shield size={18} style={{ color: '#06b6d4' }} /> Secure Instant Verification
+                </h4>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '1.6' }}>
+                  Payments are accepted via <strong>bKash Send Money</strong> and <strong>Pathao Pay</strong> with official QR codes. Once you submit your Transaction ID (TrxID), our Superadmin team verifies and credits your account balance.
+                </p>
+                <button 
+                  className="btn btn-secondary btn-sm" 
+                  style={{ marginTop: '14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => { setPaymentModalTab('history'); setShowPaymentModal(true); loadMyPaymentRequests(); }}
+                >
+                  <History size={15} /> Track My Submitted Upgrade Requests
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -4403,6 +4983,467 @@ Please return ONLY the updated template text.`;
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* ══ STEPPED PAYMENT & PACKAGE PURCHASE MODAL ══ */}
+        {showPaymentModal && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999999, padding: '20px' }}>
+            <div className="card glowing-panel" style={{ width: '100%', maxWidth: '780px', maxHeight: '90vh', overflowY: 'auto', border: '1px solid #06b6d4', padding: '28px', borderRadius: '16px', background: '#090d16' }}>
+              
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px' }}>
+                <div>
+                  <h3 style={{ margin: 0, color: '#fff', fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <CreditCard size={22} style={{ color: '#06b6d4' }} /> Buy Credits & Payment Gateway
+                  </h3>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    Instant bKash / Pathao Pay manual payment & Superadmin credit assignment
+                  </span>
+                </div>
+                <button className="btn btn-secondary btn-sm" onClick={() => setShowPaymentModal(false)}>✕ Close</button>
+              </div>
+
+              {/* Top Tabs */}
+              <div className="tabs" style={{ marginBottom: '24px' }}>
+                <button 
+                  className={`tab-btn ${paymentModalTab === 'buy' ? 'active' : ''}`}
+                  onClick={() => setPaymentModalTab('buy')}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <ShoppingCart size={15} /> Purchase Wizard (4 Steps)
+                </button>
+                <button 
+                  className={`tab-btn ${paymentModalTab === 'history' ? 'active' : ''}`}
+                  onClick={() => { setPaymentModalTab('history'); loadMyPaymentRequests(); }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <History size={15} /> My Submissions & Order Tracker ({myPaymentRequests.length})
+                </button>
+              </div>
+
+              {paymentModalTab === 'buy' && (
+                <div>
+                  {/* Stepper Progress Bar Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', position: 'relative', flexWrap: 'wrap', gap: '12px' }}>
+                    <div style={{ position: 'absolute', top: '18px', left: '10%', right: '10%', height: '2px', background: 'var(--border-subtle)', zIndex: 1 }} />
+                    <div style={{ position: 'absolute', top: '18px', left: '10%', width: paymentStep === 1 ? '0%' : paymentStep === 2 ? '33%' : paymentStep === 3 ? '66%' : '80%', height: '2px', background: '#06b6d4', transition: 'all 0.3s ease', zIndex: 1 }} />
+
+                    {[
+                      { step: 1, label: '1. Package & Method' },
+                      { step: 2, label: '2. Pay & QR Code' },
+                      { step: 3, label: '3. Details & TrxID' },
+                      { step: 4, label: '4. Admin Approval' }
+                    ].map((s) => (
+                      <div key={s.step} style={{ zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer' }} onClick={() => { if (s.step < paymentStep) setPaymentStep(s.step); }}>
+                        <div style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '50%',
+                          background: paymentStep >= s.step ? '#06b6d4' : '#1e293b',
+                          color: paymentStep >= s.step ? '#000' : 'var(--text-muted)',
+                          fontWeight: 'bold',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: paymentStep === s.step ? '3px solid #fff' : 'none',
+                          boxShadow: paymentStep >= s.step ? '0 0 12px rgba(6,182,212,0.5)' : 'none'
+                        }}>
+                          {paymentStep > s.step ? <Check size={16} /> : s.step}
+                        </div>
+                        <span style={{ fontSize: '0.75rem', marginTop: '6px', color: paymentStep >= s.step ? '#fff' : 'var(--text-muted)', fontWeight: paymentStep === s.step ? 'bold' : 'normal', whiteSpace: 'nowrap' }}>
+                          {s.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* STEP 1: Select Package & Payment Method */}
+                  {paymentStep === 1 && (
+                    <div>
+                      <h4 style={{ marginBottom: '14px', color: '#fff' }}>Step 1: Choose Credit Package & Payment Method</h4>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                        {paymentConfig.packages?.map(pkg => (
+                          <div 
+                            key={pkg.id}
+                            onClick={() => setSelectedPackage(pkg)}
+                            className="card"
+                            style={{ 
+                              cursor: 'pointer', 
+                              border: selectedPackage?.id === pkg.id ? '2px solid #eab308' : '1px solid var(--border-subtle)',
+                              background: selectedPackage?.id === pkg.id ? 'rgba(234, 179, 8, 0.1)' : 'rgba(255,255,255,0.02)',
+                              position: 'relative',
+                              padding: '16px'
+                            }}
+                          >
+                            {pkg.popular && (
+                              <span style={{ position: 'absolute', top: '-10px', right: '12px', background: '#eab308', color: '#000', fontSize: '0.65rem', fontWeight: '900', padding: '2px 8px', borderRadius: '10px' }}>
+                                BEST VALUE
+                              </span>
+                            )}
+                            <h5 style={{ margin: '0 0 8px 0', color: '#fff' }}>{pkg.name}</h5>
+                            <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#eab308', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <Coins size={18} /> {pkg.credits} Credits
+                            </div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#fff', marginTop: '6px' }}>
+                              ৳{pkg.price_bdt} BDT
+                            </div>
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px', marginBottom: 0 }}>
+                              {pkg.description}
+                            </p>
+                          </div>
+                        ))}
+
+                        {/* Custom Amount Option */}
+                        <div 
+                          onClick={() => setSelectedPackage('custom')}
+                          className="card"
+                          style={{ 
+                            cursor: 'pointer', 
+                            border: selectedPackage === 'custom' ? '2px solid #06b6d4' : '1px solid var(--border-subtle)',
+                            background: selectedPackage === 'custom' ? 'rgba(6, 182, 212, 0.1)' : 'rgba(255,255,255,0.02)',
+                            padding: '16px'
+                          }}
+                        >
+                          <h5 style={{ margin: '0 0 8px 0', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={16} /> Custom Amount</h5>
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Enter credits needed:</label>
+                          <input 
+                            type="number" 
+                            className="form-control"
+                            style={{ width: '100%', margin: '6px 0' }}
+                            value={customCredits}
+                            onChange={(e) => { setCustomCredits(e.target.value); setSelectedPackage('custom'); }}
+                            min="10"
+                          />
+                          <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#06b6d4' }}>
+                            ৳{(parseInt(customCredits) || 0) * 10} BDT
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Payment Method Selector */}
+                      <h5 style={{ marginBottom: '12px', color: '#fff' }}>Select Payment Method:</h5>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                        <div 
+                          onClick={() => setSelectedMethod('bkash')}
+                          style={{
+                            padding: '16px',
+                            borderRadius: '12px',
+                            border: selectedMethod === 'bkash' ? '2px solid #e2136e' : '1px solid var(--border-subtle)',
+                            background: selectedMethod === 'bkash' ? 'rgba(226, 19, 110, 0.14)' : 'rgba(255,255,255,0.02)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '14px',
+                            transition: 'all 0.2s ease'
+                          }}
+                        >
+                          <div style={{ width: '60px', height: '44px', borderRadius: '8px', background: '#fff', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(226, 19, 110, 0.3)' }}>
+                            <img src={bkashLogoImg} alt="bKash Logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 'bold', color: '#fff', fontSize: '0.95rem' }}>bKash Send Money</div>
+                            <div style={{ fontSize: '0.75rem', color: '#e2136e', fontWeight: 'bold' }}>Personal / Send Money</div>
+                          </div>
+                        </div>
+
+                        <div 
+                          onClick={() => setSelectedMethod('pathao_pay')}
+                          style={{
+                            padding: '16px',
+                            borderRadius: '12px',
+                            border: selectedMethod === 'pathao_pay' ? '2px solid #ef4444' : '1px solid var(--border-subtle)',
+                            background: selectedMethod === 'pathao_pay' ? 'rgba(239, 68, 68, 0.14)' : 'rgba(255,255,255,0.02)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '14px',
+                            transition: 'all 0.2s ease'
+                          }}
+                        >
+                          <div style={{ width: '60px', height: '44px', borderRadius: '8px', background: '#fff', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)' }}>
+                            <img src={pathaoLogoImg} alt="Pathao Pay Logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 'bold', color: '#fff', fontSize: '0.95rem' }}>Pathao Pay</div>
+                            <div style={{ fontSize: '0.75rem', color: '#ef4444', fontWeight: 'bold' }}>Personal / Merchant</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button 
+                        className="btn btn-primary" 
+                        style={{ width: '100%', fontSize: '1rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                        onClick={() => {
+                          if (!selectedPackage) setSelectedPackage('custom');
+                          setPaymentStep(2);
+                        }}
+                      >
+                        Proceed to Step 2: Payment Details <ArrowRight size={16} />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* STEP 2: Pay & QR Code */}
+                  {paymentStep === 2 && (
+                    <div>
+                      <h4 style={{ marginBottom: '14px', color: '#fff' }}>
+                        Step 2: Pay via {selectedMethod === 'bkash' ? 'bKash' : 'Pathao Pay'} QR & Number
+                      </h4>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                        {/* Account Details Box */}
+                        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', padding: '20px', borderRadius: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                            <div style={{ width: '40px', height: '30px', background: '#fff', borderRadius: '6px', padding: '2px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+                              <img src={selectedMethod === 'bkash' ? bkashLogoImg : pathaoLogoImg} alt={selectedMethod} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: selectedMethod === 'bkash' ? '#e2136e' : '#ef4444', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                              Official {selectedMethod === 'bkash' ? 'bKash' : 'Pathao Pay'} Number
+                            </div>
+                          </div>
+                          <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#fff', margin: '8px 0', letterSpacing: '1px' }}>
+                            {selectedMethod === 'bkash' ? paymentConfig.bkash_number : paymentConfig.pathao_number}
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                            Account Type: <strong>{selectedMethod === 'bkash' ? paymentConfig.bkash_account_type : paymentConfig.pathao_account_type}</strong>
+                          </div>
+
+                          <button 
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ 
+                              width: '100%', 
+                              background: copiedNumber ? '#22c55e' : (selectedMethod === 'bkash' ? '#e2136e' : '#ef4444'), 
+                              color: '#fff', 
+                              borderColor: copiedNumber ? '#22c55e' : (selectedMethod === 'bkash' ? '#e2136e' : '#ef4444'), 
+                              fontWeight: 'bold',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px',
+                              whiteSpace: 'nowrap'
+                            }}
+                            onClick={() => {
+                              const numToCopy = selectedMethod === 'bkash' ? paymentConfig.bkash_number : paymentConfig.pathao_number;
+                              navigator.clipboard.writeText((numToCopy || '').replace(/[^0-9+]/g, ''));
+                              setCopiedNumber(true);
+                              showToast('Number copied to clipboard!', 'success');
+                              setTimeout(() => setCopiedNumber(false), 3000);
+                            }}
+                          >
+                            {copiedNumber ? <><CheckCircle2 size={15} /> Copied to Clipboard!</> : <><Copy size={15} /> Copy Number</>}
+                          </button>
+                        </div>
+
+                        {/* QR Code Container */}
+                        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', padding: '20px', borderRadius: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                          <h5 style={{ margin: '0 0 10px 0', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}><QrCode size={16} /> Scan {selectedMethod === 'bkash' ? 'bKash' : 'Pathao Pay'} QR Code</h5>
+                          
+                          <div style={{ width: '160px', height: '160px', background: '#fff', padding: '8px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 14px rgba(0,0,0,0.3)' }}>
+                            {selectedMethod === 'bkash' ? (
+                              paymentConfig.bkash_qr_url ? (
+                                <img 
+                                  src={`${API_BASE}${paymentConfig.bkash_qr_url}`} 
+                                  alt="bKash QR Code" 
+                                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                />
+                              ) : (
+                                <div style={{ color: '#e2136e', fontSize: '0.8rem', textAlign: 'center', fontWeight: 'bold' }}>
+                                  <QrCode size={24} style={{ marginBottom: '4px' }} /><br/>
+                                  bKash QR<br/>
+                                  <span style={{ fontSize: '0.72rem', color: '#475569', fontWeight: 'normal' }}>
+                                    Use Send Money to:<br/>
+                                    <strong style={{ color: '#e2136e' }}>{paymentConfig.bkash_number}</strong>
+                                  </span>
+                                </div>
+                              )
+                            ) : (
+                              paymentConfig.pathao_qr_url ? (
+                                <img 
+                                  src={`${API_BASE}${paymentConfig.pathao_qr_url}`} 
+                                  alt="Pathao Pay QR Code" 
+                                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                />
+                              ) : (
+                                <img 
+                                  src={pathaoQrImg} 
+                                  alt="Pathao Pay QR Code" 
+                                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                />
+                              )
+                            )}
+                          </div>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+                            {selectedMethod === 'pathao_pay' ? 'Scan with Pathao Pay App' : 'Send Money via bKash App'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'rgba(6, 182, 212, 0.08)', padding: '14px', borderRadius: '8px', border: '1px solid rgba(6, 182, 212, 0.3)', marginBottom: '24px', fontSize: '0.85rem' }}>
+                        Payable Amount: <strong style={{ color: '#06b6d4', fontSize: '1.1rem' }}>৳{selectedPackage && selectedPackage !== 'custom' ? selectedPackage.price_bdt : (parseInt(customCredits) || 0) * 10} BDT</strong> for <strong>{selectedPackage && selectedPackage !== 'custom' ? selectedPackage.credits : customCredits} Credits</strong>.
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                        <button className="btn btn-secondary" style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', whiteSpace: 'nowrap' }} onClick={() => setPaymentStep(1)}>
+                          <ArrowLeft size={16} /> Back to Step 1
+                        </button>
+                        <button className="btn btn-primary" style={{ flex: 2, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: 'linear-gradient(135deg, #06b6d4, #3b82f6)', whiteSpace: 'nowrap' }} onClick={() => setPaymentStep(3)}>
+                          Payment Complete <ArrowRight size={16} /> Move to Step 3 for Transaction ID
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 3: Reference & User Details */}
+                  {paymentStep === 3 && (
+                    <div>
+                      <h4 style={{ marginBottom: '14px', color: '#fff' }}>Step 3: Reference & Transaction Details</h4>
+                      
+                      <form onSubmit={handlePaymentSubmit} style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-subtle)', marginBottom: '24px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                          <div className="form-group">
+                            <label>Customer Full Name *</label>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              value={refUserName} 
+                              onChange={(e) => setRefUserName(e.target.value)} 
+                              required 
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>Customer Email Address *</label>
+                            <input 
+                              type="email" 
+                              className="form-control" 
+                              value={refUserEmail} 
+                              onChange={(e) => setRefUserEmail(e.target.value)} 
+                              required 
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>Sender Phone Number *</label>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              placeholder="e.g. 01824500704" 
+                              value={refUserPhone} 
+                              onChange={(e) => setRefUserPhone(e.target.value)} 
+                              required 
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>{selectedMethod === 'bkash' ? 'bKash' : 'Pathao Pay'} Transaction ID (TrxID) *</label>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              placeholder="e.g. 8N7A6B5C4D" 
+                              value={refTrxId} 
+                              onChange={(e) => setRefTrxId(e.target.value)} 
+                              required 
+                              style={{ textTransform: 'uppercase', letterSpacing: '1px' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ background: 'rgba(234, 179, 8, 0.08)', padding: '12px 16px', borderRadius: '6px', border: '1px solid rgba(234, 179, 8, 0.3)', marginBottom: '20px', fontSize: '0.85rem', color: '#eab308' }}>
+                          Reference Summary: Requesting <strong>{selectedPackage && selectedPackage !== 'custom' ? selectedPackage.credits : customCredits} Credits</strong> via <strong>{selectedMethod.toUpperCase()}</strong> (TrxID: <strong>{refTrxId || '---'}</strong>)
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                          <button type="button" className="btn btn-secondary" style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', whiteSpace: 'nowrap' }} onClick={() => setPaymentStep(2)}>
+                            <ArrowLeft size={16} /> Back to Step 2
+                          </button>
+                          <button type="submit" className="btn btn-primary" style={{ flex: 2, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: 'linear-gradient(135deg, #e2136e, #be123c)', borderColor: '#e2136e', fontSize: '1rem', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                            Submit for Verification <ArrowRight size={16} />
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
+
+                  {/* STEP 4: Admin Verification & Status */}
+                  {paymentStep === 4 && (
+                    <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                      <div style={{ width: '70px', height: '70px', borderRadius: '50%', background: 'rgba(234, 179, 8, 0.2)', border: '2px solid #eab308', color: '#eab308', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto' }}>
+                        <Clock size={36} />
+                      </div>
+
+                      <h3 style={{ color: '#fff', marginBottom: '8px' }}>Step 4: Pending Admin Verification</h3>
+                      <p style={{ color: 'var(--text-secondary)', maxWidth: '550px', margin: '0 auto 24px auto', fontSize: '0.9rem', lineHeight: '1.5' }}>
+                        Your payment reference proof has been recorded successfully. Superadmin is reviewing your Transaction ID (TrxID) and will assign <strong>{selectedPackage && selectedPackage !== 'custom' ? selectedPackage.credits : customCredits} Credits</strong> to your account shortly.
+                      </p>
+
+                      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', padding: '20px', borderRadius: '12px', maxWidth: '500px', margin: '0 auto 28px auto', textAlign: 'left' }}>
+                        <div style={{ fontSize: '0.85rem', marginBottom: '6px' }}>Customer Name: <strong>{refUserName}</strong></div>
+                        <div style={{ fontSize: '0.85rem', marginBottom: '6px' }}>Payment Method: <strong>{selectedMethod.toUpperCase()}</strong></div>
+                        <div style={{ fontSize: '0.85rem', marginBottom: '6px' }}>Sender Number: <strong>{refUserPhone}</strong></div>
+                        <div style={{ fontSize: '0.85rem', marginBottom: '6px' }}>Transaction ID: <strong style={{ color: '#06b6d4', letterSpacing: '1px' }}>{refTrxId}</strong></div>
+                        <div style={{ fontSize: '0.85rem' }}>Credits Requested: <strong style={{ color: '#eab308' }}>+{selectedPackage && selectedPackage !== 'custom' ? selectedPackage.credits : customCredits} CR</strong></div>
+                      </div>
+
+                      <button 
+                        className="btn btn-primary" 
+                        style={{ padding: '12px 30px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                        onClick={() => { setPaymentModalTab('history'); loadMyPaymentRequests(); }}
+                      >
+                        <History size={16} /> Track Order Status in Submissions Log
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {paymentModalTab === 'history' && (
+                <div>
+                  <h4 style={{ marginBottom: '16px', color: '#fff' }}>Your Payment Submissions & Order Tracker</h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {myPaymentRequests.map(req => (
+                      <div key={req.id} className="card" style={{ padding: '20px', border: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.02)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                          <div>
+                            <strong style={{ color: '#fff', fontSize: '1rem' }}>{req.package_name}</strong>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: '10px' }}>Request #{req.id}</span>
+                          </div>
+                          <div>
+                            {req.status === 'pending' ? (
+                              <span style={{ color: '#eab308', background: 'rgba(234, 179, 8, 0.15)', padding: '4px 10px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Clock size={13} /> Pending Admin Verification</span>
+                            ) : req.status === 'approved' ? (
+                              <span style={{ color: '#22c55e', background: 'rgba(34, 197, 94, 0.15)', padding: '4px 10px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><CheckCircle2 size={13} /> Approved & Credited</span>
+                            ) : (
+                              <span style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', padding: '4px 10px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><XCircle size={13} /> Rejected ({req.rejection_reason || 'Invalid TrxID'})</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Interactive Step Line Tracker */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px', background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px', marginBottom: '12px', fontSize: '0.75rem' }}>
+                          <div style={{ color: '#22c55e', display: 'flex', alignItems: 'center', gap: '4px' }}><Check size={13} /> Step 1: Method</div>
+                          <div style={{ color: '#22c55e', display: 'flex', alignItems: 'center', gap: '4px' }}><Check size={13} /> Step 2: Payment Sent</div>
+                          <div style={{ color: '#22c55e', display: 'flex', alignItems: 'center', gap: '4px' }}><Check size={13} /> Step 3: TrxID: {req.transaction_id}</div>
+                          <div style={{ color: req.status === 'approved' ? '#22c55e' : req.status === 'rejected' ? '#ef4444' : '#eab308', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            {req.status === 'approved' ? <><Check size={13} /> Step 4: Approved</> : req.status === 'rejected' ? <><XCircle size={13} /> Step 4: Rejected</> : <><Clock size={13} /> Step 4: Verifying...</>}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          <span>Method: <strong style={{ color: '#fff' }}>{(req.payment_method || 'bkash').toUpperCase()}</strong> | Sender: <strong>{req.bkash_number}</strong></span>
+                          <span>Credits: <strong style={{ color: '#eab308' }}>+{req.credits_requested} CR</strong> (৳{req.amount_bdt} BDT)</span>
+                        </div>
+                      </div>
+                    ))}
+                    {myPaymentRequests.length === 0 && (
+                      <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                        No payment submissions found. Click "Purchase Wizard" above to select a package and pay.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         )}

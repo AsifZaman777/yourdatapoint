@@ -177,6 +177,26 @@ def init_db():
         )
     """)
 
+    # Payment Requests table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS payment_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            package_name TEXT NOT NULL,
+            credits_requested INTEGER NOT NULL,
+            amount_bdt REAL NOT NULL,
+            bkash_number TEXT NOT NULL,
+            transaction_id TEXT NOT NULL,
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+            rejection_reason TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            processed_at TIMESTAMP,
+            processed_by INTEGER,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (processed_by) REFERENCES users(id)
+        )
+    """)
+
     # Banned IPs
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS banned_ips (
@@ -223,7 +243,23 @@ def init_db():
     except Exception:
         pass
 
-    # Ensure admin users are unbanned and verified automatically
+    # Payment Requests table migrations
+    try:
+        cursor.execute("ALTER TABLE payment_requests ADD COLUMN payment_method TEXT DEFAULT 'bkash'")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE payment_requests ADD COLUMN user_name TEXT")
+    except Exception:
+        pass
+
+    # Dynamic Payment Gateway Settings Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS payment_settings (
+            setting_key TEXT PRIMARY KEY,
+            setting_value TEXT
+        )
+    """)
     try:
         cursor.execute("UPDATE users SET is_banned = 0, is_verified = 1, warning_message = '' WHERE role = 'admin' OR email = 'admin@marketingostad.com' OR email = 'admin@databazaar.com'")
         cursor.execute("DELETE FROM banned_ips")

@@ -192,3 +192,39 @@ Stacktrace:
 [11:58:34] [wa_camp_1785218314] [WHATSAPP] Starting from contact index: 0 | Total contacts: 1
 [11:58:47] [wa_camp_1785218314] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
 [11:58:47] [wa_camp_1785218314] [WHATSAPP] Campaign stopped by user. Paused at lead index: 0.
+[14:17:39] [wa_camp_1785226659] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[14:17:39] [wa_camp_1785226659] [WHATSAPP] Starting from contact index: 1 | Total contacts: 1
+[14:17:49] [wa_camp_1785226659] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[14:17:51] [wa_camp_1785226659] [WHATSAPP] 🎉 WhatsApp campaign completed! Sent: 1, Failed: 0
+[14:21:48] [wa_camp_1785226908] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[14:21:48] [wa_camp_1785226908] [WHATSAPP] Starting from contact index: 1 | Total contacts: 1
+[14:22:13] [wa_camp_1785226908] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[14:22:15] [wa_camp_1785226908] [WHATSAPP] 🎉 WhatsApp campaign completed! Sent: 1, Failed: 0
+[15:05:21] [wa_camp_1785229521] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[15:05:21] [wa_camp_1785229521] [WHATSAPP] Starting from contact index: 0 | Total contacts: 1
+[15:05:29] [wa_camp_1785229521] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[15:05:29] [wa_camp_1785229521] [WHATSAPP] [1/1] Opening chat for Alif's make up studio & Beauty Salon (Mirpur Branch) (8801317039832)...
+[15:05:37] [wa_camp_1785229521] [WHATSAPP] Typing message to Alif's make up studio & Beauty Salon (Mirpur Branch)...
+[15:06:31] [wa_camp_1785229521] [WHATSAPP] ❌ Typing process failed for Alif's make up studio & Beauty Salon (Mirpur Branch): Message: invalid session id; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#invalidsessionidexception
+Stacktrace:
+	chromedriver!GetHandleVerifier [0x7ff70ac60d25+155a5]
+	chromedriver!GetHandleVerifier [0x7ff70ac60d80+15600]
+	chromedriver!(No symbol) [0x7ff70a7b5736]
+	chromedriver!(No symbol) [0x7ff70a801ed6]
+	chromedriver!(No symbol) [0x7ff70a8390d2]
+	chromedriver!(No symbol) [0x7ff70a832ef2]
+	chromedriver!(No symbol) [0x7ff70a8326b2]
+	chromedriver!(No symbol) [0x7ff70a77de1b]
+	chromedriver!(No symbol) [0x7ff70a77e472]
+	chromedriver!(No symbol) [0x7ff70a77ea35]
+	chromedriver!GetHandleVerifier [0x7ff70b246431+5facb1]
+	chromedriver!GetHandleVerifier [0x7ff70b240a9b+5f531b]
+	chromedriver!GetHandleVerifier [0x7ff70b265865+61a0e5]
+	chromedriver!GetHandleVerifier [0x7ff70ac7dace+3234e]
+	chromedriver!GetHandleVerifier [0x7ff70ac8661c+3ae9c]
+	chromedriver!(No symbol) [0x7ff70a77d39c]
+	chromedriver!GetHandleVerifier [0x7ff70b423d88+7d8608]
+	KERNEL32!BaseThreadInitThunk [0x7ffbd444257d+1d]
+	ntdll!RtlUserThreadStart [0x7ffbd502af28+28]
+
+[15:06:33] [wa_camp_1785229521] [WHATSAPP] 🎉 WhatsApp campaign completed! Sent: 0, Failed: 1

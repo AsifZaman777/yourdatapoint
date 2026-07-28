@@ -44,6 +44,17 @@ def format_phone(phone):
         cleaned = "880" + cleaned
     return cleaned
 
+def cleanup_profile_locks(profile_path):
+    """Remove Chrome Singleton locks that cause Chrome to drop persistent profile sessions"""
+    lock_files = ["SingletonLock", "SingletonCookie", "SingletonSocket"]
+    for lock in lock_files:
+        lock_p = os.path.join(profile_path, lock)
+        if os.path.exists(lock_p) or os.path.islink(lock_p):
+            try:
+                os.unlink(lock_p)
+            except Exception:
+                pass
+
 def setup_driver():
     """Setup Chrome options and persistence profile directory"""
     options = Options()
@@ -53,23 +64,30 @@ def setup_driver():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
     options.add_argument("--window-size=1400,900")
+    options.add_argument("--disable-session-crashed-bubble")
+    options.add_argument("--disable-infobars")
 
     profile_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whatsapp_session")
+    os.makedirs(profile_path, exist_ok=True)
+    cleanup_profile_locks(profile_path)
+
     options.add_argument(f"--user-data-dir={profile_path}")
+    options.add_argument("--profile-directory=Default")
 
     driver = webdriver.Chrome(options=options)
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     return driver
 
 def wait_for_whatsapp_login(driver):
-    """Wait for scan session verification"""
-    driver.get("https://web.whatsapp.com")
+    """Wait for scan session verification and open active WhatsApp chats"""
+    if "web.whatsapp.com" not in driver.current_url:
+        driver.get("https://web.whatsapp.com")
     start_time = time.time()
     while time.time() - start_time < 180:
         try:
-            indicators = driver.find_elements(By.XPATH, '//div[@id="side"] | //div[@data-testid="chat-list"] | //header')
+            indicators = driver.find_elements(By.XPATH, '//div[@id="side"] | //div[@data-testid="chat-list"] | //div[@id="pane-side"] | //header')
             if indicators and len(indicators) > 0:
-                time.sleep(3)
+                time.sleep(2)
                 return True
         except Exception:
             pass
@@ -211,7 +229,10 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
 
             log_status(f"[{current_index + 1}/{len(contacts)}] Opening chat for {name} ({formatted})...")
             url = f"https://web.whatsapp.com/send?phone={formatted}"
-            driver.get(url)
+            try:
+                driver.execute_script("window.location.href = arguments[0];", url)
+            except Exception:
+                driver.get(url)
 
             # Save screenshot for live map view
             time.sleep(2)

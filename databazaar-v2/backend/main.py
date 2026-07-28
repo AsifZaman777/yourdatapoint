@@ -13,13 +13,14 @@ from datetime import datetime
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr
 
 from database import get_db, init_db
 from auth import hash_password, verify_password, create_jwt_token, decode_jwt_token
 from scraper import setup_driver, scrape_query, save_to_excel
 from senders import run_whatsapp_campaign, write_log_to_file, SCREENSHOTS_FOLDER as CAMPAIGN_SCREENSHOTS
-from config import REGIONS, CATEGORIES, BREVO_API_KEY as CONFIG_BREVO_API_KEY, SMTP_USER as CONFIG_SMTP_USER, SUPERADMIN_EMAIL, SUPERADMIN_PASSWORD, SUPERADMIN_NAME, FRONTEND_URL
+from config import REGIONS, CATEGORIES, BREVO_API_KEY as CONFIG_BREVO_API_KEY, SMTP_USER as CONFIG_SMTP_USER, SUPERADMIN_EMAIL, SUPERADMIN_PASSWORD, SUPERADMIN_NAME, FRONTEND_URL, BKASH_NUMBER, BKASH_ACCOUNT_TYPE, PATHAO_NUMBER, PATHAO_ACCOUNT_TYPE, CREDIT_PACKAGES
 from email_templates import get_verification_email_html
 
 app = FastAPI(title="MarketingOstad API Service")
@@ -41,6 +42,8 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(SCRAPE_RESULTS_FOLDER, exist_ok=True)
 os.makedirs(SCRAPER_SCREENSHOTS_FOLDER, exist_ok=True)
 os.makedirs(LOGS_FOLDER, exist_ok=True)
+
+app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
 
 @app.on_event("startup")
 def startup_db_unban_admins():
@@ -913,6 +916,177 @@ def reject_promotion_request(job_id: int, admin_user: dict = Depends(get_admin_u
     conn.close()
     return {"success": True, "message": "Promotion request rejected."}
 
+# ── Payment & bKash / Pathao Module Endpoints ───────────────
+
+def get_payment_gateway_settings():
+    conn = get_db()
+    rows = conn.execute("SELECT setting_key, setting_value FROM payment_settings").fetchall()
+    conn.close()
+    
+    settings_dict = {row["setting_key"]: row["setting_value"] for row in rows if row["setting_value"]}
+    
+    return {
+        "bkash_number": settings_dict.get("bkash_number") or BKASH_NUMBER,
+        "bkash_account_type": settings_dict.get("bkash_account_type") or BKASH_ACCOUNT_TYPE,
+        "bkash_qr_url": settings_dict.get("bkash_qr_url") or "",
+        "pathao_number": settings_dict.get("pathao_number") or PATHAO_NUMBER,
+        "pathao_account_type": settings_dict.get("pathao_account_type") or PATHAO_ACCOUNT_TYPE,
+        "pathao_qr_url": settings_dict.get("pathao_qr_url") or "",
+        "packages": CREDIT_PACKAGES
+    }
+
+@app.get("/api/payments/packages-config")
+def get_payment_packages_config():
+    return get_payment_gateway_settings()
+
+@app.post("/api/admin/payment-settings")
+async def update_admin_payment_settings(
+    bkash_number: Optional[str] = Form(None),
+    bkash_account_type: Optional[str] = Form(None),
+    pathao_number: Optional[str] = Form(None),
+    pathao_account_type: Optional[str] = Form(None),
+    bkash_qr_file: Optional[UploadFile] = File(None),
+    pathao_qr_file: Optional[UploadFile] = File(None),
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") not in ["admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Admin permissions required.")
+
+    conn = get_db()
+
+    if bkash_number is not None:
+        conn.execute("INSERT OR REPLACE INTO payment_settings (setting_key, setting_value) VALUES ('bkash_number', ?)", (bkash_number.strip(),))
+    if bkash_account_type is not None:
+        conn.execute("INSERT OR REPLACE INTO payment_settings (setting_key, setting_value) VALUES ('bkash_account_type', ?)", (bkash_account_type.strip(),))
+    if pathao_number is not None:
+        conn.execute("INSERT OR REPLACE INTO payment_settings (setting_key, setting_value) VALUES ('pathao_number', ?)", (pathao_number.strip(),))
+    if pathao_account_type is not None:
+        conn.execute("INSERT OR REPLACE INTO payment_settings (setting_key, setting_value) VALUES ('pathao_account_type', ?)", (pathao_account_type.strip(),))
+
+    if bkash_qr_file and bkash_qr_file.filename:
+        ext = os.path.splitext(bkash_qr_file.filename)[1] or ".png"
+        filename = f"bkash_qr{ext}"
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        with open(filepath, "wb") as f:
+            f.write(await bkash_qr_file.read())
+        rel_url = f"/uploads/{filename}"
+        conn.execute("INSERT OR REPLACE INTO payment_settings (setting_key, setting_value) VALUES ('bkash_qr_url', ?)", (rel_url,))
+
+    if pathao_qr_file and pathao_qr_file.filename:
+        ext = os.path.splitext(pathao_qr_file.filename)[1] or ".png"
+        filename = f"pathao_qr{ext}"
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        with open(filepath, "wb") as f:
+            f.write(await pathao_qr_file.read())
+        rel_url = f"/uploads/{filename}"
+        conn.execute("INSERT OR REPLACE INTO payment_settings (setting_key, setting_value) VALUES ('pathao_qr_url', ?)", (rel_url,))
+
+    conn.commit()
+    conn.close()
+
+    return {"success": True, "message": "Payment gateway numbers, account types, and QR codes updated successfully!"}
+
+class PaymentRequestPayload(BaseModel):
+    package_name: str
+    credits_requested: int
+    amount_bdt: float
+    payment_method: str = "bkash"
+    user_name: Optional[str] = None
+    bkash_number: str
+    transaction_id: str
+
+@app.post("/api/payments/submit-request")
+def submit_payment_request(req: PaymentRequestPayload, current_user: dict = Depends(get_current_user)):
+    if not req.transaction_id or not req.bkash_number:
+        raise HTTPException(status_code=400, detail="Sender Phone Number and Transaction ID (TrxID) are required.")
+        
+    conn = get_db()
+    # Check if duplicate TrxID pending or approved
+    existing = conn.execute("SELECT id FROM payment_requests WHERE transaction_id = ? AND status IN ('pending', 'approved')", (req.transaction_id.strip(),)).fetchone()
+    if existing:
+        conn.close()
+        raise HTTPException(status_code=400, detail="This Transaction ID (TrxID) has already been submitted.")
+
+    u_name = req.user_name or current_user.get("full_name") or current_user.get("email")
+
+    conn.execute(
+        """INSERT INTO payment_requests (user_id, package_name, credits_requested, amount_bdt, payment_method, user_name, bkash_number, transaction_id, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
+        (current_user["id"], req.package_name, req.credits_requested, req.amount_bdt, req.payment_method, u_name, req.bkash_number.strip(), req.transaction_id.strip())
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Payment proof submitted successfully! Pending admin verification."}
+
+@app.get("/api/payments/my-requests")
+def list_my_payment_requests(current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM payment_requests WHERE user_id = ? ORDER BY created_at DESC", (current_user["id"],)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.get("/api/admin/payment-requests")
+def list_admin_payment_requests(admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT pr.*, u.email, u.full_name FROM payment_requests pr
+        JOIN users u ON pr.user_id = u.id
+        ORDER BY CASE WHEN pr.status = 'pending' THEN 0 ELSE 1 END, pr.created_at DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/api/admin/payment-requests/{request_id}/approve")
+def approve_payment_request(request_id: int, admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    req = conn.execute("SELECT * FROM payment_requests WHERE id = ?", (request_id,)).fetchone()
+    if not req:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Payment request not found.")
+
+    if req["status"] != "pending":
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Payment request has already been {req['status']}.")
+
+    # Add credits to user
+    conn.execute("UPDATE users SET credits = credits + ? WHERE id = ?", (req["credits_requested"], req["user_id"]))
+
+    # Log credit transaction
+    conn.execute(
+        """INSERT INTO credit_transactions (user_id, amount, transaction_type, description)
+           VALUES (?, ?, 'add', ?)""",
+        (req["user_id"], req["credits_requested"], f"bKash Package Purchase: {req['package_name']} (TrxID: {req['transaction_id']})")
+    )
+
+    # Update payment request status
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        "UPDATE payment_requests SET status = 'approved', processed_at = ?, processed_by = ? WHERE id = ?",
+        (now_str, admin_user["id"], request_id)
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": f"Payment approved! Successfully added {req['credits_requested']} credits to user account."}
+
+@app.post("/api/admin/payment-requests/{request_id}/reject")
+def reject_payment_request(request_id: int, rejection_reason: str = Form("Transaction ID mismatch or invalid payment"), admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    req = conn.execute("SELECT * FROM payment_requests WHERE id = ?", (request_id,)).fetchone()
+    if not req:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Payment request not found.")
+
+    import datetime
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        "UPDATE payment_requests SET status = 'rejected', rejection_reason = ?, processed_at = ?, processed_by = ? WHERE id = ?",
+        (rejection_reason, now_str, admin_user["id"], request_id)
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Payment request rejected."}
+
 # ── Marketing Campaign Endpoints ─────────────────────────
 
 @app.get("/api/marketing/whatsapp-status")
@@ -923,10 +1097,16 @@ def whatsapp_status():
     
     has_files = False
     try:
-        for root, dirs, files in os.walk(profile):
-            if len(files) > 0:
-                has_files = True
-                break
+        indexed_db_path = os.path.join(profile, "Default", "IndexedDB")
+        local_storage_path = os.path.join(profile, "Default", "Local Storage")
+        if os.path.exists(indexed_db_path) or os.path.exists(local_storage_path):
+            for root, dirs, files in os.walk(profile):
+                for f in files:
+                    if f.endswith(".leveldb") or f.endswith(".ldb") or "whatsapp" in f.lower():
+                        has_files = True
+                        break
+                if has_files:
+                    break
     except Exception:
         pass
 
@@ -934,22 +1114,23 @@ def whatsapp_status():
 
 @app.get("/api/marketing/whatsapp-setup-session")
 def whatsapp_setup(background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
-    from senders import wait_for_whatsapp_login
+    from senders import setup_driver, wait_for_whatsapp_login
     def scan_runner():
         try:
             driver = setup_driver()
-            wait_for_whatsapp_login(driver)
-            time.sleep(5)
+            is_logged_in = wait_for_whatsapp_login(driver)
+            if is_logged_in:
+                time.sleep(10)
             driver.quit()
         except Exception:
             pass
     background_tasks.add_task(scan_runner)
-    return {"success": True, "message": "Chrome launched. Please scan the QR code on screen."}
+    return {"success": True, "message": "Chrome launched! Scan QR code or view active WhatsApp chats in browser."}
 
 @app.post("/api/marketing/whatsapp-reset-session")
 def whatsapp_reset_session(background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     import shutil
-    from senders import wait_for_whatsapp_login
+    from senders import setup_driver, wait_for_whatsapp_login
     profile = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whatsapp_session")
     if os.path.exists(profile):
         try:
@@ -961,7 +1142,7 @@ def whatsapp_reset_session(background_tasks: BackgroundTasks, current_user: dict
         try:
             driver = setup_driver()
             wait_for_whatsapp_login(driver)
-            time.sleep(5)
+            time.sleep(10)
             driver.quit()
         except Exception:
             pass
