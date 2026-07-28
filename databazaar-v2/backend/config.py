@@ -18,7 +18,8 @@ if os.path.exists(_env_file):
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 SMTP_USER = os.getenv("SMTP_USER", "asifdev777@gmail.com")
 
-# ── Superadmin Configuration ──────────────────────────────
+# ── Superadmin & Frontend URL Configuration ───────────────
+FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "asifdev777@gmail.com")
 SUPERADMIN_PASSWORD = os.getenv("SUPERADMIN_PASSWORD", "admin123")
 SUPERADMIN_NAME = os.getenv("SUPERADMIN_NAME", "Asif Zaman (Superadmin)")

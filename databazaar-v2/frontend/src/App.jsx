@@ -51,7 +51,14 @@ import {
   QrCode
 } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const getApiBase = () => {
+  const envBase = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+  if (envBase.includes('localhost') && window.location.hostname !== 'localhost') {
+    return envBase.replace('localhost', window.location.hostname);
+  }
+  return envBase;
+};
+const API_BASE = getApiBase();
 const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || 'asifdev777@gmail.com';
 const HOTLINE_PHONE = import.meta.env.VITE_HOTLINE_PHONE || '+880 1863443343';
 const SUPPORT_HOURS = import.meta.env.VITE_SUPPORT_HOURS || '24/7 Automated System & Live WhatsApp Assistance';
@@ -264,6 +271,7 @@ export default function App() {
   const [datasetFilterDist, setDatasetFilterDist] = useState('');
   const [datasetFilterArea, setDatasetFilterArea] = useState('');
   const [datasetListSearch, setDatasetListSearch] = useState('');
+  const [catalogTab, setCatalogTab] = useState('public'); // 'public' or 'private'
 
   // Scraper dropdown/input states
   const [scrapeQuery, setScrapeQuery] = useState('');
@@ -327,8 +335,37 @@ Demo Link: demo.campusbaba.com
       }, 4000);
     }
   };
-  const showConfirm = (message, onConfirm, onCancel = null) => {
-    showToast(message, 'warning', onConfirm, onCancel);
+  const [confirmModal, setConfirmModal] = useState(null);
+
+  const showConfirm = (message, onConfirm, onCancel = null, title = "Confirmation Needed") => {
+    setConfirmModal({
+      title,
+      message,
+      inputConfig: null,
+      onConfirm: () => {
+        setConfirmModal(null);
+        if (onConfirm) onConfirm();
+      },
+      onCancel: () => {
+        setConfirmModal(null);
+        if (onCancel) onCancel();
+      }
+    });
+  };
+
+  const showPrompt = (title, message, defaultValue, onConfirm, inputType = "text") => {
+    setConfirmModal({
+      title,
+      message,
+      inputConfig: { defaultValue, type: inputType },
+      onConfirm: (val) => {
+        setConfirmModal(null);
+        if (onConfirm) onConfirm(val);
+      },
+      onCancel: () => {
+        setConfirmModal(null);
+      }
+    });
   };
 
   const handleAiRedirect = (platform) => {
@@ -429,6 +466,7 @@ Please return ONLY the updated template text.`;
   const [promoteJobId, setPromoteJobId] = useState(null);
   const [promoteName, setPromoteName] = useState('');
   const [promoteCategory, setPromoteCategory] = useState('');
+  const [adminPromotionRequests, setAdminPromotionRequests] = useState([]);
   const [uploadName, setUploadName] = useState('');
   const [uploadCategory, setUploadCategory] = useState('');
   const [uploadPrice, setUploadPrice] = useState(10);
@@ -606,36 +644,43 @@ Please return ONLY the updated template text.`;
     );
   };
 
-  const handleQuickAddCredits = async (userId, userEmail, currentCredits) => {
-    const amountStr = window.prompt(`Assign credits to ${userEmail} (Current balance: ${currentCredits}):\n\nEnter amount to add (e.g. 50 or 100):`, "50");
-    if (!amountStr) return;
-    const amount = parseInt(amountStr);
-    if (isNaN(amount) || amount === 0) {
-      showToast('Please enter a valid non-zero number.', 'warning');
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/api/admin/users/add-credits`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          amount: amount
-        })
-      });
-      if (res.ok) {
-        showToast(`Successfully assigned ${amount} credits to ${userEmail}!`, 'success');
-        loadAdminUsers();
-      } else {
-        const data = await res.json();
-        showToast(data.detail || 'Failed to assign credits.', 'error');
-      }
-    } catch {
-      showToast('Error assigning credits.', 'error');
-    }
+  const handleQuickAddCredits = (userId, userEmail, currentCredits) => {
+    showPrompt(
+      "Assign Customer Credits",
+      `Assign credits to ${userEmail}\nCurrent balance: ${currentCredits} credits\n\nEnter amount to add (e.g. 50 or 100):`,
+      "50",
+      async (amountStr) => {
+        if (!amountStr) return;
+        const amount = parseInt(amountStr);
+        if (isNaN(amount) || amount === 0) {
+          showToast('Please enter a valid non-zero number.', 'warning');
+          return;
+        }
+        try {
+          const res = await fetch(`${API_BASE}/api/admin/users/add-credits`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              user_id: userId,
+              amount: amount
+            })
+          });
+          if (res.ok) {
+            showToast(`Successfully assigned ${amount} credits to ${userEmail}!`, 'success');
+            loadAdminUsers();
+          } else {
+            const data = await res.json();
+            showToast(data.detail || 'Failed to assign credits.', 'error');
+          }
+        } catch {
+          showToast('Error assigning credits.', 'error');
+        }
+      },
+      "number"
+    );
   };
 
   // Timeouts / Ref
@@ -1313,7 +1358,7 @@ Please return ONLY the updated template text.`;
     }
   };
 
-  // Promote scrape results to catalog
+  // Promote / Request Promote scrape results
   const handlePromoteSubmit = async (e) => {
     e.preventDefault();
     const formData = new FormData();
@@ -1321,22 +1366,73 @@ Please return ONLY the updated template text.`;
     formData.append('category', promoteCategory);
 
     try {
-      const res = await fetch(`${API_BASE}/api/scraper/jobs/${promoteJobId}/promote`, {
+      const res = await fetch(`${API_BASE}/api/scraper/jobs/${promoteJobId}/request-promote`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
       const data = await res.json();
       if (res.ok) {
-        showToast('Job promoted successfully!', 'success');
+        showToast(data.message || 'Promotion request processed successfully!', 'success');
         setPromoteJobId(null);
         loadDatasets();
         loadJobs();
+        loadAdminPromotionRequests();
       } else {
         showToast(data.detail || 'Promotion failed.', 'error');
       }
     } catch {
-      showToast('Error promoting job.', 'error');
+      showToast('Error submitting promotion request.', 'error');
+    }
+  };
+
+  const loadAdminPromotionRequests = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/promotion-requests`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) setAdminPromotionRequests(data);
+    } catch { }
+  };
+
+  const approvePromotionRequest = async (jobId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/promotion-requests/${jobId}/approve`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || 'Promotion request approved & dataset published!', 'success');
+        loadAdminPromotionRequests();
+        loadDatasets();
+        loadJobs();
+      } else {
+        showToast(data.detail || 'Approval failed.', 'error');
+      }
+    } catch {
+      showToast('Error approving promotion request.', 'error');
+    }
+  };
+
+  const rejectPromotionRequest = async (jobId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/promotion-requests/${jobId}/reject`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Promotion request rejected.', 'info');
+        loadAdminPromotionRequests();
+        loadJobs();
+      } else {
+        showToast(data.detail || 'Rejection failed.', 'error');
+      }
+    } catch {
+      showToast('Error rejecting request.', 'error');
     }
   };
 
@@ -2542,70 +2638,199 @@ Please return ONLY the updated template text.`;
           <div>
             {!selectedDatasetId ? (
               <div>
-                <div style={{ display: 'flex', gap: '20px', marginBottom: '30px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <input type="text" className="form-control" style={{ flex: '1', minWidth: '200px' }} placeholder="Search datasets..." value={datasetListSearch} onChange={(e) => setDatasetListSearch(e.target.value)} />
-
-                  {/* Category Dropdown */}
-                  <select className="form-control" style={{ width: '180px' }} value={datasetFilterCat} onChange={(e) => setDatasetFilterCat(e.target.value)}>
-                    <option value="">-- Categories --</option>
-                    {categoriesList.map((cat, i) => (
-                      <option key={i} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-
-                  {/* Bangladesh Division Select Dropdown */}
-                  <select className="form-control" style={{ width: '180px' }} value={datasetFilterDiv} onChange={(e) => { setDatasetFilterDiv(e.target.value); setDatasetFilterDist(''); setDatasetFilterArea(''); }}>
-                    <option value="">-- Divisions --</option>
-                    {regionsConfig && Object.keys(regionsConfig).map((div, i) => (
-                      <option key={i} value={div}>{div}</option>
-                    ))}
-                    <option value="Other">Other / Custom...</option>
-                  </select>
-                  {datasetFilterDiv === 'Other' && (
-                    <input type="text" className="form-control" style={{ width: '150px' }} placeholder="Type division..." value={datasetFilterDivCustom} onChange={(e) => setDatasetFilterDivCustom(e.target.value)} />
-                  )}
-
-                  {/* Bangladesh District Select Dropdown */}
-                  <select className="form-control" style={{ width: '180px' }} value={datasetFilterDist} onChange={(e) => { setDatasetFilterDist(e.target.value); setDatasetFilterArea(''); }} disabled={!datasetFilterDiv && datasetFilterDiv !== 'Other'}>
-                    <option value="">-- Districts --</option>
-                    {regionsConfig && datasetFilterDiv && regionsConfig[datasetFilterDiv] && Object.keys(regionsConfig[datasetFilterDiv]).map((dist, i) => (
-                      <option key={i} value={dist}>{dist}</option>
-                    ))}
-                    <option value="Other">Other / Custom...</option>
-                  </select>
-                  {datasetFilterDist === 'Other' && (
-                    <input type="text" className="form-control" style={{ width: '150px' }} placeholder="Type district..." value={datasetFilterDistCustom} onChange={(e) => setDatasetFilterDistCustom(e.target.value)} />
-                  )}
-
-                  {/* Area / City Select Dropdown */}
-                  <select className="form-control" style={{ width: '180px' }} value={datasetFilterArea} onChange={(e) => setDatasetFilterArea(e.target.value)} disabled={!datasetFilterDist && datasetFilterDist !== 'Other'}>
-                    <option value="">-- Area / City --</option>
-                    {regionsConfig && datasetFilterDiv && datasetFilterDist && regionsConfig[datasetFilterDiv]?.[datasetFilterDist] && regionsConfig[datasetFilterDiv][datasetFilterDist].map((area, i) => (
-                      <option key={i} value={area}>{area}</option>
-                    ))}
-                    <option value="Other">Other / Custom...</option>
-                  </select>
-                  {datasetFilterArea === 'Other' && (
-                    <input type="text" className="form-control" style={{ width: '150px' }} placeholder="Type area..." value={datasetFilterAreaCustom} onChange={(e) => setDatasetFilterAreaCustom(e.target.value)} />
-                  )}
+                {/* Catalog Sub-Tab Navigation Header */}
+                <div className="tabs" style={{ marginBottom: '24px' }}>
+                  <button 
+                    type="button"
+                    className={`tab-btn ${catalogTab === 'public' ? 'active' : ''}`}
+                    onClick={() => setCatalogTab('public')}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem' }}
+                  >
+                    <Globe size={16} /> 🌐 Public Datasets ({datasets.length})
+                  </button>
+                  <button 
+                    type="button"
+                    className={`tab-btn ${catalogTab === 'private' ? 'active' : ''}`}
+                    onClick={() => setCatalogTab('private')}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem' }}
+                  >
+                    <Lock size={16} /> 🔒 My Private Datasets ({scraperJobs.filter(j => j.status === 'done').length})
+                  </button>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' }}>
-                  {datasets.map(ds => (
-                    <div key={ds.id} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '6px' }}>{ds.category}</div>
-                        <h4 style={{ marginBottom: '10px' }}>{ds.name}</h4>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Covering: {ds.area || ds.district || ds.division || 'Bangladesh'}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>Leads parsed: {ds.row_count} rows</div>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '14px' }}>
-                        <span className="digital-text" style={{ fontSize: '1.1rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Coins size={15} style={{ color: '#eab308' }} /> {ds.price_credits}</span>
-                        <button className="btn btn-secondary btn-sm" onClick={() => openDatasetDetails(ds.id, 1)}>View Dataset</button>
-                      </div>
+                {/* SUB-TAB 1: PUBLIC DATASETS */}
+                {catalogTab === 'public' && (
+                  <div>
+                    <div style={{ display: 'flex', gap: '20px', marginBottom: '30px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input type="text" className="form-control" style={{ flex: '1', minWidth: '200px' }} placeholder="Search public datasets..." value={datasetListSearch} onChange={(e) => setDatasetListSearch(e.target.value)} />
+
+                      {/* Category Dropdown */}
+                      <select className="form-control" style={{ width: '180px' }} value={datasetFilterCat} onChange={(e) => setDatasetFilterCat(e.target.value)}>
+                        <option value="">-- Categories --</option>
+                        {categoriesList.map((cat, i) => (
+                          <option key={i} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+
+                      {/* Bangladesh Division Select Dropdown */}
+                      <select className="form-control" style={{ width: '180px' }} value={datasetFilterDiv} onChange={(e) => { setDatasetFilterDiv(e.target.value); setDatasetFilterDist(''); setDatasetFilterArea(''); }}>
+                        <option value="">-- Divisions --</option>
+                        {regionsConfig && Object.keys(regionsConfig).map((div, i) => (
+                          <option key={i} value={div}>{div}</option>
+                        ))}
+                        <option value="Other">Other / Custom...</option>
+                      </select>
+                      {datasetFilterDiv === 'Other' && (
+                        <input type="text" className="form-control" style={{ width: '150px' }} placeholder="Type division..." value={datasetFilterDivCustom} onChange={(e) => setDatasetFilterDivCustom(e.target.value)} />
+                      )}
+
+                      {/* Bangladesh District Select Dropdown */}
+                      <select className="form-control" style={{ width: '180px' }} value={datasetFilterDist} onChange={(e) => { setDatasetFilterDist(e.target.value); setDatasetFilterArea(''); }} disabled={!datasetFilterDiv && datasetFilterDiv !== 'Other'}>
+                        <option value="">-- Districts --</option>
+                        {regionsConfig && datasetFilterDiv && regionsConfig[datasetFilterDiv] && Object.keys(regionsConfig[datasetFilterDiv]).map((dist, i) => (
+                          <option key={i} value={dist}>{dist}</option>
+                        ))}
+                        <option value="Other">Other / Custom...</option>
+                      </select>
+                      {datasetFilterDist === 'Other' && (
+                        <input type="text" className="form-control" style={{ width: '150px' }} placeholder="Type district..." value={datasetFilterDistCustom} onChange={(e) => setDatasetFilterDistCustom(e.target.value)} />
+                      )}
+
+                      {/* Area / City Select Dropdown */}
+                      <select className="form-control" style={{ width: '180px' }} value={datasetFilterArea} onChange={(e) => setDatasetFilterArea(e.target.value)} disabled={!datasetFilterDist && datasetFilterDist !== 'Other'}>
+                        <option value="">-- Area / City --</option>
+                        {regionsConfig && datasetFilterDiv && datasetFilterDist && regionsConfig[datasetFilterDiv]?.[datasetFilterDist] && regionsConfig[datasetFilterDiv][datasetFilterDist].map((area, i) => (
+                          <option key={i} value={area}>{area}</option>
+                        ))}
+                        <option value="Other">Other / Custom...</option>
+                      </select>
+                      {datasetFilterArea === 'Other' && (
+                        <input type="text" className="form-control" style={{ width: '150px' }} placeholder="Type area..." value={datasetFilterAreaCustom} onChange={(e) => setDatasetFilterAreaCustom(e.target.value)} />
+                      )}
                     </div>
-                  ))}
-                </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' }}>
+                      {datasets.map(ds => (
+                        <div key={ds.id} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                          <div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '6px' }}>{ds.category}</div>
+                            <h4 style={{ marginBottom: '10px' }}>{ds.name}</h4>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Covering: {ds.area || ds.district || ds.division || 'Bangladesh'}</div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>Leads parsed: {ds.row_count} rows</div>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '14px' }}>
+                            <span className="digital-text" style={{ fontSize: '1.1rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Coins size={15} style={{ color: '#eab308' }} /> {ds.price_credits}</span>
+                            <button className="btn btn-secondary btn-sm" onClick={() => openDatasetDetails(ds.id, 1)}>View Dataset</button>
+                          </div>
+                        </div>
+                      ))}
+                      {datasets.length === 0 && (
+                        <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                          No public datasets match your active filters.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-TAB 2: MY PRIVATE DATASETS */}
+                {catalogTab === 'private' && (
+                  <div>
+                    <div style={{ display: 'flex', gap: '20px', marginBottom: '24px', alignItems: 'center' }}>
+                      <input 
+                        type="text" 
+                        className="form-control" 
+                        style={{ flex: '1' }} 
+                        placeholder="Search your private datasets..." 
+                        value={datasetListSearch} 
+                        onChange={(e) => setDatasetListSearch(e.target.value)} 
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
+                      {scraperJobs
+                        .filter(j => j.status === 'done' && (!datasetListSearch || j.query.toLowerCase().includes(datasetListSearch.toLowerCase())))
+                        .map(job => (
+                          <div key={job.id} className="card glowing-panel" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  <Lock size={12} /> PRIVATE SCRAPED LEAD
+                                </span>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>#{job.id}</span>
+                              </div>
+                              <h4 style={{ marginBottom: '8px', color: '#fff' }}>{job.query}</h4>
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Location: {job.area || job.district || 'BD'}</div>
+                              <div style={{ fontSize: '0.8rem', color: '#22c55e', marginTop: '4px', fontWeight: 'bold' }}>Leads parsed: {job.result_count || 0} rows</div>
+                            </div>
+                            
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '14px' }}>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <button 
+                                  type="button"
+                                  className="btn btn-secondary btn-sm" 
+                                  style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                                  onClick={() => openDatasetDetails(`job_${job.id}`, 1)}
+                                >
+                                  <Search size={13} /> View Dataset
+                                </button>
+
+                                <button 
+                                  type="button"
+                                  className="btn btn-secondary btn-sm" 
+                                  style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: 'rgba(6, 182, 212, 0.12)', borderColor: '#06b6d4', color: '#06b6d4' }}
+                                  onClick={() => {
+                                    setWaRecipientGroup(`job_${job.id}`);
+                                    setEmailRecipientGroup(`job_${job.id}`);
+                                    loadRecipientContacts(`job_${job.id}`);
+                                    setCurrentTab('marketing');
+                                    setMarketingSubTab('whatsapp');
+                                    showToast(`Loaded "${job.query}" leads for marketing campaign!`, 'success');
+                                  }}
+                                >
+                                  <Play size={13} /> Use Leads
+                                </button>
+                              </div>
+
+                              {/* Promotion Request / Promote Controls */}
+                              {job.promotion_status === 'pending' ? (
+                                <button type="button" className="btn btn-secondary btn-sm" disabled style={{ width: '100%', opacity: 0.8, color: '#eab308', borderColor: '#eab308' }}>
+                                  <Clock size={14} /> ⏳ Promotion Request Pending
+                                </button>
+                              ) : job.promotion_status === 'approved' ? (
+                                <button type="button" className="btn btn-secondary btn-sm" disabled style={{ width: '100%', color: '#22c55e', borderColor: '#22c55e' }}>
+                                  <CheckCircle2 size={14} /> ✅ Published to Public Catalog
+                                </button>
+                              ) : (user?.role === 'admin' || user?.role === 'superadmin') ? (
+                                <button 
+                                  type="button"
+                                  className="btn btn-primary btn-sm" 
+                                  style={{ width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                                  onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}
+                                >
+                                  <Database size={14} /> Promote to Public Catalog
+                                </button>
+                              ) : (
+                                <button 
+                                  type="button"
+                                  className="btn btn-primary btn-sm" 
+                                  style={{ width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: 'linear-gradient(135deg, #06b6d4, #3b82f6)' }}
+                                  onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}
+                                >
+                                  <Send size={14} /> Request Promotion to Catalog
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      {scraperJobs.filter(j => j.status === 'done').length === 0 && (
+                        <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                          No private datasets found. Launch a scraping job to collect and manage your private leads here.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               // Dataset Details Protected View
@@ -2879,25 +3104,65 @@ Please return ONLY the updated template text.`;
                 </div>
               )}
 
-              <h4 style={{ margin: '20px 0 10px 0' }}>Job History</h4>
-              <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+              <h4 style={{ margin: '20px 0 10px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Job History & Scraped Data</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Scraped data is kept private to your account until promoted by an admin</span>
+              </h4>
+              <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '4px' }}>
                 {scraperJobs.map(job => (
-                  <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', borderBottom: '1px solid var(--border-subtle)', alignItems: 'center' }}>
+                  <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', alignItems: 'center', background: 'rgba(255,255,255,0.02)', margin: '4px 0', borderRadius: '6px' }}>
                     <div>
                       <div style={{ fontSize: '0.85rem' }}><strong>Query: {job.query}</strong></div>
-                      <small style={{ color: 'var(--text-muted)' }}>Status: {job.status} | Rows: {job.result_count}</small>
+                      <small style={{ color: 'var(--text-muted)', display: 'inline-flex', gap: '8px', marginTop: '2px' }}>
+                        <span>Status: <strong style={{ color: job.status === 'done' ? '#22c55e' : '#eab308' }}>{job.status}</strong></span> | 
+                        <span>Scraped Leads: <strong>{job.result_count || 0} rows</strong></span>
+                      </small>
                     </div>
-                    <div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       {job.status === 'running' ? (
                         <button className="btn btn-secondary btn-sm" onClick={() => pollScrapeJob(job.id)}>Logs</button>
-                      ) : job.status === 'done' && user.role === 'admin' ? (
-                        <button className="btn btn-primary btn-sm" onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}>Promote</button>
+                      ) : job.status === 'done' ? (
+                        <>
+                          {/* 1. USE LEADS BUTTON: Available for ALL USERS & ADMIN */}
+                          <button 
+                            type="button"
+                            className="btn btn-secondary btn-sm" 
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(6, 182, 212, 0.12)', borderColor: '#06b6d4', color: '#06b6d4' }}
+                            onClick={() => {
+                              setWaRecipientGroup(`job_${job.id}`);
+                              setEmailRecipientGroup(`job_${job.id}`);
+                              loadRecipientContacts(`job_${job.id}`);
+                              setCurrentTab('marketing');
+                              setMarketingSubTab('whatsapp');
+                              showToast(`Loaded "${job.query}" leads for campaign dispatch!`, 'success');
+                            }}
+                          >
+                            <Play size={13} /> Use Leads (Private)
+                          </button>
+
+                          {/* 2. PROMOTE BUTTON: Available ONLY for ADMIN */}
+                          {(user?.role === 'admin' || user?.role === 'superadmin') && (
+                            <button 
+                              type="button"
+                              className="btn btn-primary btn-sm" 
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}
+                            >
+                              <Database size={13} /> Promote to Catalog
+                            </button>
+                          )}
+                        </>
                       ) : (
                         <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Finished</span>
                       )}
                     </div>
                   </div>
                 ))}
+                {scraperJobs.length === 0 && (
+                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    No scraping jobs executed yet. Launch a query above to gather fresh leads.
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -3752,8 +4017,70 @@ Please return ONLY the updated template text.`;
           <div>
             <div className="tabs">
               <button className={`tab-btn ${adminSubTab === 'datasets' ? 'active' : ''}`} onClick={() => setAdminSubTab('datasets')}>📁 Manage Datasets</button>
+              <button className={`tab-btn ${adminSubTab === 'requests' ? 'active' : ''}`} onClick={() => { setAdminSubTab('requests'); loadAdminPromotionRequests(); }}>
+                📥 Promotion Requests ({adminPromotionRequests.length})
+              </button>
               <button className={`tab-btn ${adminSubTab === 'users' ? 'active' : ''}`} onClick={() => { setAdminSubTab('users'); loadAdminUsers(); }}>👥 Customers & Credits</button>
             </div>
+
+            {/* Pane: Promotion Requests */}
+            {adminSubTab === 'requests' && (
+              <div className="card">
+                <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  📥 Customer Promotion Requests Queue
+                </h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Job #</th>
+                        <th>User Email</th>
+                        <th>Scraped Query</th>
+                        <th>Proposed Dataset Name</th>
+                        <th>Proposed Category</th>
+                        <th>Leads Parsed</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminPromotionRequests.map((req) => (
+                        <tr key={req.id}>
+                          <td>#{req.id}</td>
+                          <td><strong>{req.email || req.full_name}</strong></td>
+                          <td>{req.query}</td>
+                          <td><strong style={{ color: '#06b6d4' }}>{req.proposed_name || req.query}</strong></td>
+                          <td>{req.proposed_category || 'Coaching Center'}</td>
+                          <td><span className="digital-text">{req.result_count || 0}</span> rows</td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button 
+                                className="btn btn-primary btn-sm"
+                                onClick={() => approvePromotionRequest(req.id)}
+                              >
+                                ✅ Approve & Publish
+                              </button>
+                              <button 
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => rejectPromotionRequest(req.id)}
+                              >
+                                ❌ Reject
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {adminPromotionRequests.length === 0 && (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                            No pending promotion requests from users.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Pane: Manage Datasets */}
             {adminSubTab === 'datasets' && (
@@ -4080,18 +4407,82 @@ Please return ONLY the updated template text.`;
           </div>
         )}
 
+        {/* ══ CUSTOM CONFIRMATION & PROMPT MODAL ══ */}
+        {confirmModal && (
+          <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999999, padding: '20px' }}>
+            <div className="card glowing-panel" style={{ maxWidth: '440px', width: '100%', border: '1px solid #06b6d4', padding: '24px', borderRadius: '12px', background: '#090d16' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                <AlertTriangle size={22} style={{ color: '#06b6d4' }} />
+                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem' }}>{confirmModal.title || 'Confirmation Needed'}</h3>
+              </div>
+              
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
+                {confirmModal.message}
+              </p>
+
+              {confirmModal.inputConfig && (
+                <div className="form-group" style={{ marginBottom: '20px' }}>
+                  <input 
+                    type={confirmModal.inputConfig.type || 'text'}
+                    className="form-control"
+                    style={{ width: '100%', fontSize: '0.95rem' }}
+                    defaultValue={confirmModal.inputConfig.defaultValue}
+                    autoFocus
+                    id="confirm-modal-input"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const inputEl = document.getElementById('confirm-modal-input');
+                        const val = inputEl ? inputEl.value : true;
+                        confirmModal.onConfirm(val);
+                      }
+                    }}
+                  />
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={confirmModal.onCancel}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-primary" 
+                  onClick={() => {
+                    const inputEl = document.getElementById('confirm-modal-input');
+                    const val = inputEl ? inputEl.value : true;
+                    confirmModal.onConfirm(val);
+                  }}
+                >
+                  Confirm & Proceed
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ══ POPUP FORM: PROMOTE JOB ══ */}
         {promoteJobId && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-            <div className="card glowing-panel" style={{ width: '100%', maxWidth: '400px' }}>
-              <h3 style={{ marginBottom: '20px' }}>📁 Promote Scraped Job to Catalog</h3>
+            <div className="card glowing-panel" style={{ width: '100%', maxWidth: '420px' }}>
+              <h3 style={{ marginBottom: '8px' }}>
+                {(user?.role === 'admin' || user?.role === 'superadmin') ? '📁 Promote Scraped Job to Public Catalog' : '📥 Request Dataset Promotion'}
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+                {(user?.role === 'admin' || user?.role === 'superadmin') 
+                  ? 'Promote this dataset directly to the public catalog for all users.' 
+                  : 'Submit a request to Admin to publish this dataset in the public catalog.'}
+              </p>
               <form onSubmit={handlePromoteSubmit}>
                 <div className="form-group">
-                  <label>Dataset Name</label>
+                  <label>Proposed Dataset Name</label>
                   <input type="text" className="form-control" value={promoteName} onChange={(e) => setPromoteName(e.target.value)} required />
                 </div>
                 <div className="form-group">
-                  <label>Category</label>
+                  <label>Proposed Category</label>
                   <select className="form-control" value={promoteCategory} onChange={(e) => setPromoteCategory(e.target.value)} required>
                     <option value="">-- Choose Category --</option>
                     {categoriesList.map((cat, i) => (
@@ -4100,7 +4491,9 @@ Please return ONLY the updated template text.`;
                   </select>
                 </div>
                 <div style={{ display: 'flex', gap: '15px', marginTop: '20px' }}>
-                  <button className="btn btn-primary" type="submit" style={{ flex: '1' }}>Confirm Promote</button>
+                  <button className="btn btn-primary" type="submit" style={{ flex: '1' }}>
+                    {(user?.role === 'admin' || user?.role === 'superadmin') ? 'Confirm & Publish' : 'Submit Request'}
+                  </button>
                   <button className="btn btn-secondary" type="button" onClick={() => setPromoteJobId(null)}>Cancel</button>
                 </div>
               </form>

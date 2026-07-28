@@ -209,8 +209,17 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0")
     except Exception:
         pass
+    # Scrape jobs promotion tracking migrations
     try:
-        cursor.execute("ALTER TABLE users ADD COLUMN verification_token TEXT")
+        cursor.execute("ALTER TABLE scrape_jobs ADD COLUMN promotion_status TEXT DEFAULT 'none'")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE scrape_jobs ADD COLUMN proposed_name TEXT")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE scrape_jobs ADD COLUMN proposed_category TEXT")
     except Exception:
         pass
 

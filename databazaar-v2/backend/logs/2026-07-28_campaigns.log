@@ -188,3 +188,7 @@ Stacktrace:
 15  libsystem_pthread.dylib             0x0000000188cdcc18 thread_start + 4
 
 [01:53:22] [wa_camp_1785181926] [WHATSAPP] Campaign stopped by user. Paused at lead index: 1.
+[11:58:34] [wa_camp_1785218314] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[11:58:34] [wa_camp_1785218314] [WHATSAPP] Starting from contact index: 0 | Total contacts: 1
+[11:58:47] [wa_camp_1785218314] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[11:58:47] [wa_camp_1785218314] [WHATSAPP] Campaign stopped by user. Paused at lead index: 0.

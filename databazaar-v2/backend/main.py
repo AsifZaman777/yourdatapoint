@@ -19,7 +19,7 @@ from database import get_db, init_db
 from auth import hash_password, verify_password, create_jwt_token, decode_jwt_token
 from scraper import setup_driver, scrape_query, save_to_excel
 from senders import run_whatsapp_campaign, write_log_to_file, SCREENSHOTS_FOLDER as CAMPAIGN_SCREENSHOTS
-from config import REGIONS, CATEGORIES, BREVO_API_KEY as CONFIG_BREVO_API_KEY, SMTP_USER as CONFIG_SMTP_USER, SUPERADMIN_EMAIL, SUPERADMIN_PASSWORD, SUPERADMIN_NAME
+from config import REGIONS, CATEGORIES, BREVO_API_KEY as CONFIG_BREVO_API_KEY, SMTP_USER as CONFIG_SMTP_USER, SUPERADMIN_EMAIL, SUPERADMIN_PASSWORD, SUPERADMIN_NAME, FRONTEND_URL
 from email_templates import get_verification_email_html
 
 app = FastAPI(title="MarketingOstad API Service")
@@ -230,7 +230,7 @@ def send_free_verification_email(recipient_email: str, full_name: str, verify_li
 # ── Auth Endpoints ───────────────────────────────────────
 
 @app.post("/api/auth/register")
-def register(req: RegisterRequest):
+def register(req: RegisterRequest, request: Request):
     conn = get_db()
     exists = conn.execute("SELECT id FROM users WHERE email = ?", (req.email,)).fetchone()
     if exists:
@@ -239,7 +239,11 @@ def register(req: RegisterRequest):
     
     pwd_hash = hash_password(req.password)
     v_token = str(uuid.uuid4())
-    verify_link = f"http://localhost:5173/?verify_token={v_token}"
+    
+    base_url = FRONTEND_URL
+    if not base_url and request and request.headers.get("origin"):
+        base_url = request.headers.get("origin").rstrip("/")
+    verify_link = f"{base_url}/?verify_token={v_token}"
     
     # 1. SEND EMAIL FIRST - DO NOT INSERT TO DATABASE IF EMAIL DISPATCH FAILS!
     email_dispatched, err_msg = send_free_verification_email(req.email, req.full_name, verify_link)
@@ -292,7 +296,7 @@ def verify_email(token: str):
     }
 
 @app.post("/api/auth/resend-verification")
-def resend_verification(req: ResendVerificationRequest):
+def resend_verification(req: ResendVerificationRequest, request: Request):
     conn = get_db()
     user = conn.execute("SELECT * FROM users WHERE email = ?", (req.email,)).fetchone()
     if not user:
@@ -308,7 +312,10 @@ def resend_verification(req: ResendVerificationRequest):
     conn.commit()
     conn.close()
     
-    verify_link = f"http://localhost:5173/?verify_token={v_token}"
+    base_url = FRONTEND_URL
+    if not base_url and request and request.headers.get("origin"):
+        base_url = request.headers.get("origin").rstrip("/")
+    verify_link = f"{base_url}/?verify_token={v_token}"
     email_dispatched, err_msg = send_free_verification_email(req.email, user["full_name"], verify_link)
     if not email_dispatched:
         raise HTTPException(status_code=400, detail=f"Failed to resend email: {err_msg}")
@@ -420,6 +427,39 @@ def list_datasets(category: Optional[str] = None, division: Optional[str] = None
     conn.close()
     return [dict(r) for r in rows]
 
+def resolve_dataset_file_path(file_path: Optional[str], dataset_id: Optional[int] = None) -> Optional[str]:
+    if not file_path:
+        return None
+    if os.path.exists(file_path):
+        return file_path
+    
+    filename = os.path.basename(file_path.replace("\\", "/"))
+    local_upload = os.path.join(UPLOAD_FOLDER, filename)
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root_mirpur = os.path.join(parent_dir, "coaching_centers_mirpur.xlsx")
+    root_sanitized = os.path.join(parent_dir, "sanitized_coaching_centers.xlsx")
+
+    found_path = None
+    if os.path.exists(local_upload):
+        found_path = local_upload
+    elif "mirpur" in filename.lower() and os.path.exists(root_mirpur):
+        found_path = root_mirpur
+    elif os.path.exists(root_sanitized):
+        found_path = root_sanitized
+    elif os.path.exists(os.path.join(parent_dir, filename)):
+        found_path = os.path.join(parent_dir, filename)
+
+    if found_path and dataset_id:
+        try:
+            conn = get_db()
+            conn.execute("UPDATE datasets SET file_path = ? WHERE id = ?", (found_path, dataset_id))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print("[RESOLVE DATASET PATH DB UPDATE ERROR]", e)
+
+    return found_path
+
 def clean_lead_df(df):
     """Clean DataFrame to strip float conversion .0 suffixes and NaN strings"""
     df = df.fillna("")
@@ -431,33 +471,66 @@ def clean_lead_df(df):
     return df
 
 @app.get("/api/datasets/{dataset_id}")
-def get_dataset(dataset_id: int, page: int = 1, search: Optional[str] = None, authorization: Optional[str] = Header(None)):
+def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, authorization: Optional[str] = Header(None)):
     conn = get_db()
+    
+    # Check if dataset_id is a private scrape job
+    if str(dataset_id).startswith("job_"):
+        job_real_id = str(dataset_id).replace("job_", "")
+        job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_real_id,)).fetchone()
+        conn.close()
+        if not job or not job["result_path"]:
+            raise HTTPException(status_code=404, detail="Private scrape job or file not found.")
+            
+        file_path = job["result_path"]
+        if file_path and not os.path.exists(file_path):
+            fn = os.path.basename(file_path.replace("\\", "/"))
+            if os.path.exists(os.path.join(SCRAPE_RESULTS_FOLDER, fn)):
+                file_path = os.path.join(SCRAPE_RESULTS_FOLDER, fn)
+                
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Private scrape job result file missing.")
+            
+        try:
+            df = pd.read_csv(file_path, dtype=str) if file_path.endswith(".csv") else pd.read_excel(file_path, dtype=str)
+            df = clean_lead_df(df)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Failed to parse private job leads file.")
+
+        if search:
+            df = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
+
+        total_rows = len(df)
+        start_row = (page - 1) * 25
+        end_row = start_row + 25
+        leads = df.iloc[start_row:end_row].to_dict(orient="records")
+
+        return {
+            "dataset": {
+                "id": f"job_{job_real_id}",
+                "name": job["query"],
+                "category": "Private Scraped Dataset",
+                "division": job["division"],
+                "district": job["district"],
+                "area": job["area"],
+                "row_count": total_rows,
+                "price_credits": 0
+            },
+            "unlocked": True,
+            "leads": leads,
+            "total_rows": total_rows,
+            "page": page,
+            "pages_count": (total_rows + 24) // 25
+        }
+
+    # Standard public dataset lookup
     ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
     if not ds:
         conn.close()
         raise HTTPException(status_code=404, detail="Dataset not found.")
         
-    file_path = ds["file_path"]
-    if not os.path.exists(file_path):
-        filename = os.path.basename(file_path.replace("\\", "/"))
-        local_upload = os.path.join(UPLOAD_FOLDER, filename)
-        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        root_mirpur = os.path.join(parent_dir, "coaching_centers_mirpur.xlsx")
-        root_sanitized = os.path.join(parent_dir, "sanitized_coaching_centers.xlsx")
-        
-        if os.path.exists(local_upload):
-            file_path = local_upload
-        elif "mirpur" in filename.lower() and os.path.exists(root_mirpur):
-            file_path = root_mirpur
-        elif os.path.exists(root_sanitized):
-            file_path = root_sanitized
-            
-        if os.path.exists(file_path):
-            conn.execute("UPDATE datasets SET file_path = ? WHERE id = ?", (file_path, dataset_id))
-            conn.commit()
-
-    if not os.path.exists(file_path):
+    file_path = resolve_dataset_file_path(ds["file_path"], int(dataset_id))
+    if not file_path or not os.path.exists(file_path):
         conn.close()
         raise HTTPException(status_code=404, detail="Data file missing.")
 
@@ -488,7 +561,7 @@ def get_dataset(dataset_id: int, page: int = 1, search: Optional[str] = None, au
                 "SELECT id FROM access_logs WHERE user_id = ? AND dataset_id = ? AND action = 'unlock'",
                 (current_user_id, dataset_id)
             ).fetchone()
-            if log or role == "admin":
+            if log or role in ("admin", "superadmin"):
                 unlocked = True
 
     # Apply search filter
@@ -563,26 +636,25 @@ def unlock_dataset(dataset_id: int, current_user: dict = Depends(get_current_use
     return {"success": True, "credits": user["credits"]}
 
 @app.get("/api/datasets/{dataset_id}/export")
-def export_dataset(dataset_id: int, token: Optional[str] = None, admin_user: dict = Depends(get_admin_user)):
-    """
-    Only admin users are allowed to download / export dataset files to Excel.
-    Non-admin users will receive HTTP 403 Forbidden.
-    """
+def export_dataset(dataset_id: str, token: Optional[str] = None):
     conn = get_db()
-    ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+    file_path = None
+    if str(dataset_id).startswith("job_"):
+        job_real_id = str(dataset_id).replace("job_", "")
+        job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_real_id,)).fetchone()
+        if job:
+            file_path = job["result_path"]
+            if file_path and not os.path.exists(file_path):
+                fn = os.path.basename(file_path.replace("\\", "/"))
+                if os.path.exists(os.path.join(SCRAPE_RESULTS_FOLDER, fn)):
+                    file_path = os.path.join(SCRAPE_RESULTS_FOLDER, fn)
+    else:
+        ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+        if ds:
+            file_path = resolve_dataset_file_path(ds["file_path"], int(dataset_id))
     conn.close()
-    
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found.")
-        
-    file_path = ds["file_path"]
-    if not os.path.exists(file_path):
-        filename = os.path.basename(file_path.replace("\\", "/"))
-        local_upload = os.path.join(UPLOAD_FOLDER, filename)
-        if os.path.exists(local_upload):
-            file_path = local_upload
 
-    if not os.path.exists(file_path):
+    if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Data file missing.")
 
     from fastapi.responses import FileResponse
@@ -758,27 +830,88 @@ def get_job_status(job_id: int, current_user: dict = Depends(get_current_user)):
     }
 
 @app.post("/api/scraper/jobs/{job_id}/promote")
-def promote_job(job_id: int, category: str = Form(...), name: str = Form(...), admin_user: dict = Depends(get_admin_user)):
+@app.post("/api/scraper/jobs/{job_id}/request-promote")
+def request_promote_job(job_id: int, category: str = Form(...), name: str = Form(...), current_user: dict = Depends(get_current_user)):
     conn = get_db()
     job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
     if not job or job["status"] != "done" or not job["result_path"]:
         conn.close()
-        raise HTTPException(status_code=400, detail="Cannot promote this job because it has not finished successfully.")
+        raise HTTPException(status_code=400, detail="Cannot request promotion for this job because it has not finished successfully.")
 
-    # Create new file path in uploads
+    if current_user["role"] != "admin" and current_user["role"] != "superadmin" and job["user_id"] != current_user["id"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="You do not have permission to request promotion for this dataset.")
+
+    # If Admin or Superadmin: auto-approve & promote directly
+    if current_user["role"] in ("admin", "superadmin"):
+        new_filename = f"promoted_{job_id}_{int(time.time())}.xlsx"
+        new_path = os.path.join(UPLOAD_FOLDER, new_filename)
+        import shutil
+        shutil.copy(job["result_path"], new_path)
+        rel_path = f"uploads/{new_filename}"
+
+        conn.execute(
+            """INSERT INTO datasets (name, category, division, district, area, file_path, row_count, column_names, price_credits, uploaded_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'Name, Phone, Address, Website, Rating, Category, Maps URL, Query', 10, ?)""",
+            (name, category, job["division"], job["district"], job["area"], rel_path, job["result_count"], current_user["id"])
+        )
+        conn.execute("UPDATE scrape_jobs SET promotion_status = 'approved', proposed_name = ?, proposed_category = ? WHERE id = ?", (name, category, job_id))
+        conn.commit()
+        conn.close()
+        return {"success": True, "message": "Scraped dataset promoted successfully to the global catalog!"}
+
+    # Regular user: submit promotion request for admin review
+    conn.execute("UPDATE scrape_jobs SET promotion_status = 'pending', proposed_name = ?, proposed_category = ? WHERE id = ?", (name, category, job_id))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Promotion request submitted to Admin for approval!"}
+
+@app.get("/api/admin/promotion-requests")
+def list_promotion_requests(admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT sj.*, u.email, u.full_name FROM scrape_jobs sj
+        JOIN users u ON sj.user_id = u.id
+        WHERE sj.promotion_status = 'pending'
+        ORDER BY sj.created_at DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/api/admin/promotion-requests/{job_id}/approve")
+def approve_promotion_request(job_id: int, admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
+    if not job or not job["result_path"]:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Scrape job or result file not found.")
+
+    ds_name = job["proposed_name"] or job["query"]
+    ds_cat = job["proposed_category"] or "Coaching Center"
+
     new_filename = f"promoted_{job_id}_{int(time.time())}.xlsx"
     new_path = os.path.join(UPLOAD_FOLDER, new_filename)
     import shutil
     shutil.copy(job["result_path"], new_path)
+    rel_path = f"uploads/{new_filename}"
 
     conn.execute(
         """INSERT INTO datasets (name, category, division, district, area, file_path, row_count, column_names, price_credits, uploaded_by)
            VALUES (?, ?, ?, ?, ?, ?, ?, 'Name, Phone, Address, Website, Rating, Category, Maps URL, Query', 10, ?)""",
-        (name, category, job["division"], job["district"], job["area"], new_path, job["result_count"], admin_user["id"])
+        (ds_name, ds_cat, job["division"], job["district"], job["area"], rel_path, job["result_count"], admin_user["id"])
     )
+    conn.execute("UPDATE scrape_jobs SET promotion_status = 'approved' WHERE id = ?", (job_id,))
     conn.commit()
     conn.close()
-    return {"success": True, "message": "Scraped data promoted successfully into datasets catalog."}
+    return {"success": True, "message": f"Promotion request for '{ds_name}' approved & published to public catalog!"}
+
+@app.post("/api/admin/promotion-requests/{job_id}/reject")
+def reject_promotion_request(job_id: int, admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    conn.execute("UPDATE scrape_jobs SET promotion_status = 'rejected' WHERE id = ?", (job_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Promotion request rejected."}
 
 # ── Marketing Campaign Endpoints ─────────────────────────
 
@@ -851,13 +984,17 @@ def send_whatsapp(req: WhatsAppCampaignRequest, background_tasks: BackgroundTask
         ds_id = req.recipient_group.replace("dataset_", "")
         ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (ds_id,)).fetchone()
         if ds:
-            file_path = ds["file_path"]
+            file_path = resolve_dataset_file_path(ds["file_path"], int(ds_id))
             group_name = ds["name"]
     elif req.recipient_group.startswith("job_"):
         job_id = req.recipient_group.replace("job_", "")
         jb = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
         if jb:
             file_path = jb["result_path"]
+            if file_path and not os.path.exists(file_path):
+                fn = os.path.basename(file_path.replace("\\", "/"))
+                if os.path.exists(os.path.join(SCRAPE_RESULTS_FOLDER, fn)):
+                    file_path = os.path.join(SCRAPE_RESULTS_FOLDER, fn)
             group_name = f"Scrape job: {jb['query']}"
     conn.close()
 
@@ -937,12 +1074,16 @@ def send_email(req: EmailCampaignRequest, current_user: dict = Depends(get_curre
         ds_id = req.recipient_group.replace("dataset_", "")
         ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (ds_id,)).fetchone()
         if ds:
-            file_path = ds["file_path"]
+            file_path = resolve_dataset_file_path(ds["file_path"], int(ds_id))
     elif req.recipient_group.startswith("job_"):
         job_id = req.recipient_group.replace("job_", "")
         jb = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
         if jb:
             file_path = jb["result_path"]
+            if file_path and not os.path.exists(file_path):
+                fn = os.path.basename(file_path.replace("\\", "/"))
+                if os.path.exists(os.path.join(SCRAPE_RESULTS_FOLDER, fn)):
+                    file_path = os.path.join(SCRAPE_RESULTS_FOLDER, fn)
     conn.close()
 
     if not file_path or not os.path.exists(file_path):
@@ -987,12 +1128,16 @@ def get_recipient_contacts(recipient_group: str, current_user: dict = Depends(ge
         ds_id = recipient_group.replace("dataset_", "")
         ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (ds_id,)).fetchone()
         if ds:
-            file_path = ds["file_path"]
+            file_path = resolve_dataset_file_path(ds["file_path"], int(ds_id))
     elif recipient_group.startswith("job_"):
         job_id = recipient_group.replace("job_", "")
         jb = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
         if jb:
             file_path = jb["result_path"]
+            if file_path and not os.path.exists(file_path):
+                fn = os.path.basename(file_path.replace("\\", "/"))
+                if os.path.exists(os.path.join(SCRAPE_RESULTS_FOLDER, fn)):
+                    file_path = os.path.join(SCRAPE_RESULTS_FOLDER, fn)
     conn.close()
 
     if not file_path or not os.path.exists(file_path):
@@ -1010,12 +1155,15 @@ def get_recipient_contacts(recipient_group: str, current_user: dict = Depends(ge
 
     for c in df.columns:
         c_lower = c.lower()
-        if "phone" in c_lower or "mobile" in c_lower or "contact" in c_lower:
+        if "phone" in c_lower or "mobile" in c_lower or "contact" in c_lower or "number" in c_lower or "tel" in c_lower:
             if not phone_col: phone_col = c
         if "email" in c_lower or "mail" in c_lower:
             if not email_col: email_col = c
-        if "name" in c_lower or "title" in c_lower:
+        if "name" in c_lower or "title" in c_lower or "coaching" in c_lower or "school" in c_lower or "store" in c_lower or "shop" in c_lower:
             if not name_col: name_col = c
+
+    if not name_col and len(df.columns) > 0:
+        name_col = df.columns[0]
 
     def clean_val(v):
         if v is None:
