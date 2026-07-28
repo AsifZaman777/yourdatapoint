@@ -5393,7 +5393,8 @@ Please return ONLY the updated template text.`;
               <ShoppingCart size={22} style={{ color: '#06b6d4' }} /> Select Your Preferred Upgrade Package
             </h3>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+            {/* 3-Column Standard Package Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '32px' }}>
               {paymentConfig.packages?.map(pkg => (
                 <div
                   key={pkg.id}
@@ -5463,38 +5464,44 @@ Please return ONLY the updated template text.`;
                   </button>
                 </div>
               ))}
+            </div>
 
-              {/* Custom Upgrade Package Card */}
-              {(() => {
-                const customCfg = paymentConfig?.custom_package || {};
-                const customRate = customCfg.price_per_credit_bdt || 10;
-                const minC = customCfg.min_credits || 10;
-                const maxC = customCfg.max_credits || 5000;
-                const stepC = customCfg.step || 10;
-                const customName = customCfg.name || 'Custom Upgrade';
-                const customDesc = customCfg.description || 'Select the exact credit amount your team requires:';
-                const customFeats = customCfg.features || [];
+            {/* Dedicated Custom Upgrade Section Below */}
+            {(() => {
+              const customCfg = paymentConfig?.custom_package || {};
+              const customRate = customCfg.price_per_credit_bdt || 7.5;
+              const minC = customCfg.min_credits || 5;
+              const maxC = customCfg.max_credits || 500;
+              const stepC = customCfg.step || 10;
+              const customName = customCfg.name || 'Custom Upgrade';
+              const customDesc = customCfg.description || 'Select the exact credit amount your team requires:';
+              const customFeats = customCfg.features || [];
 
-                return (
-                  <div className="card" style={{ border: '1px solid var(--accent-blue)', background: 'rgba(6, 182, 212, 0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '24px' }}>
+              return (
+                <div className="card glowing-panel" style={{ border: '1px solid #06b6d4', background: 'rgba(6, 182, 212, 0.04)', padding: '28px', marginBottom: '32px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '30px', alignItems: 'center' }}>
                     <div>
-                      <h4 style={{ color: '#fff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}><Settings size={18} /> {customName}</h4>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px' }}>{customDesc}</p>
+                      <h3 style={{ color: '#fff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Settings size={20} style={{ color: '#06b6d4' }} /> {customName}
+                      </h3>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                        {customDesc}
+                      </p>
 
-                      <div className="form-group" style={{ marginBottom: '16px' }}>
+                      <div className="form-group" style={{ marginBottom: '20px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                          <label style={{ margin: 0, fontWeight: 'bold', fontSize: '0.85rem' }}>Select Custom Credits:</label>
+                          <label style={{ margin: 0, fontWeight: 'bold', fontSize: '0.9rem', color: '#fff' }}>Select Custom Credits:</label>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <input
                               type="number"
                               className="form-control"
-                              style={{ width: '90px', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', color: '#06b6d4', fontSize: '0.9rem' }}
+                              style={{ width: '110px', padding: '6px 10px', textAlign: 'center', fontWeight: 'bold', color: '#06b6d4', fontSize: '1rem' }}
                               value={customCredits}
                               onChange={(e) => setCustomCredits(Math.max(minC, parseInt(e.target.value) || minC))}
                               min={minC}
                               max={maxC * 2}
                             />
-                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>CR</span>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 'bold' }}>CR</span>
                           </div>
                         </div>
 
@@ -5513,65 +5520,75 @@ Please return ONLY the updated template text.`;
                             background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${Math.min(100, (customCredits / maxC) * 100)}%, rgba(255,255,255,0.1) ${Math.min(100, (customCredits / maxC) * 100)}%, rgba(255,255,255,0.1) 100%)`,
                             outline: 'none',
                             cursor: 'pointer',
-                            margin: '12px 0 8px 0',
+                            margin: '14px 0 10px 0',
                             accentColor: '#06b6d4'
                           }}
                         />
 
                         {/* Quick Seekbar Presets */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '4px', marginTop: '6px' }}>
-                          {[100, 500, 1000, 2500, 5000].map((val) => (
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                          {[10, 50, 100, 200, 500].map((val) => (
                             <button
                               key={val}
                               type="button"
                               className="btn btn-secondary btn-sm"
                               style={{
-                                padding: '2px 6px',
-                                fontSize: '0.7rem',
-                                background: parseInt(customCredits) === val ? 'rgba(6, 182, 212, 0.25)' : 'transparent',
+                                padding: '4px 12px',
+                                fontSize: '0.8rem',
+                                background: parseInt(customCredits) === val ? 'rgba(6, 182, 212, 0.25)' : 'rgba(255,255,255,0.03)',
                                 borderColor: parseInt(customCredits) === val ? '#06b6d4' : 'var(--border-subtle)',
-                                color: parseInt(customCredits) === val ? '#06b6d4' : 'var(--text-muted)'
+                                color: parseInt(customCredits) === val ? '#06b6d4' : 'var(--text-secondary)'
                               }}
                               onClick={() => setCustomCredits(val)}
                             >
-                              {val >= 1000 ? `${val / 1000}k` : val}
+                              {val} CR
                             </button>
                           ))}
                         </div>
                       </div>
-
-                      <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#06b6d4', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>৳{(parseInt(customCredits) || 0) * customRate} BDT</span>
-                        <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>@ ৳{customRate} BDT / Credit</small>
-                      </div>
-
-                      {customFeats && customFeats.length > 0 && (
-                        <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {customFeats.map((feat, idx) => (
-                            <li key={idx} style={{ fontSize: '0.8rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <CheckCircle2 size={14} style={{ color: '#06b6d4', flexShrink: 0 }} />
-                              <span>{feat}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
                     </div>
 
-                    <button
-                      className="btn btn-secondary"
-                      style={{ width: '100%', padding: '12px', borderColor: '#06b6d4', color: '#06b6d4', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                      onClick={() => {
-                        setSelectedPackage('custom');
-                        setPaymentStep(1);
-                        setShowPaymentModal(true);
-                      }}
-                    >
-                      <Zap size={16} /> Purchase Custom Credits
-                    </button>
+                    {/* Pricing Summary & Benefits */}
+                    <div style={{ background: 'rgba(10, 14, 23, 0.8)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>
+                          Custom Order Total
+                        </div>
+                        <div style={{ fontSize: '2rem', fontWeight: '900', color: '#06b6d4', marginBottom: '4px' }}>
+                          ৳{(parseInt(customCredits) || 0) * customRate} BDT
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                          @ ৳{customRate} BDT / Credit ({customCredits} Credits)
+                        </div>
+
+                        {customFeats && customFeats.length > 0 && (
+                          <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {customFeats.map((feat, idx) => (
+                              <li key={idx} style={{ fontSize: '0.8rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <CheckCircle2 size={14} style={{ color: '#06b6d4', flexShrink: 0 }} />
+                                <span>{feat}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+
+                      <button
+                        className="btn btn-primary"
+                        style={{ width: '100%', padding: '12px', background: 'linear-gradient(135deg, #06b6d4, #3b82f6)', color: '#fff', fontWeight: 'bold', border: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                        onClick={() => {
+                          setSelectedPackage('custom');
+                          setPaymentStep(1);
+                          setShowPaymentModal(true);
+                        }}
+                      >
+                        <Zap size={16} /> Purchase Custom Credits (৳{(parseInt(customCredits) || 0) * customRate} BDT)
+                      </button>
+                    </div>
                   </div>
-                );
-              })()}
-            </div>
+                </div>
+              );
+            })()}
 
             {/* Package Benefits & Instructions */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '32px' }}>
