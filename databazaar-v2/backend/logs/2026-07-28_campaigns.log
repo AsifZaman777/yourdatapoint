@@ -228,3 +228,30 @@ Stacktrace:
 	ntdll!RtlUserThreadStart [0x7ffbd502af28+28]
 
 [15:06:33] [wa_camp_1785229521] [WHATSAPP] 🎉 WhatsApp campaign completed! Sent: 0, Failed: 1
+[18:39:30] [wa_camp_1785242370] [WHATSAPP] Campaign started. Preparing Selenium WhatsApp session...
+[18:39:30] [wa_camp_1785242370] [WHATSAPP] Starting from contact index: 0 | Total contacts: 1
+[18:39:49] [wa_camp_1785242370] [WHATSAPP] Successfully logged in! Commencing lead group dispatch...
+[18:39:49] [wa_camp_1785242370] [WHATSAPP] [1/1] Opening chat for AKS Pharmacy Mirpur 10 (8801805470847)...
+[18:40:00] [wa_camp_1785242370] [WHATSAPP] Typing message to AKS Pharmacy Mirpur 10...
+[18:40:24] [wa_camp_1785242370] [WHATSAPP] ❌ Typing process failed for AKS Pharmacy Mirpur 10: Message: no such window: target window already closed
+from unknown error: web view not found
+  (Session info: chrome=150.0.7871.187)
+Stacktrace:
+0   chromedriver                        0x0000000102d5f6fc chromedriver + 5945084
+1   chromedriver                        0x00000001028004e8 chromedriver + 312552
+2   chromedriver                        0x00000001027d9b70 chromedriver + 154480
+3   chromedriver                        0x0000000102871d34 chromedriver + 777524
+4   chromedriver                        0x00000001028887c4 chromedriver + 870340
+5   chromedriver                        0x000000010283f33c chromedriver + 570172
+6   chromedriver                        0x0000000102d24a04 chromedriver + 5704196
+7   chromedriver                        0x0000000102d28284 chromedriver + 5718660
+8   chromedriver                        0x0000000102d0a880 chromedriver + 5597312
+9   chromedriver                        0x0000000102d28b18 chromedriver + 5720856
+10  chromedriver                        0x0000000102cfb9f8 chromedriver + 5536248
+11  chromedriver                        0x0000000102d4d40c chromedriver + 5870604
+12  chromedriver                        0x0000000102d4d56c chromedriver + 5870956
+13  chromedriver                        0x0000000102d5f354 chromedriver + 5944148
+14  libsystem_pthread.dylib             0x0000000188ce1c54 _pthread_start + 132
+15  libsystem_pthread.dylib             0x0000000188cdcc18 thread_start + 4
+
+[18:40:24] [wa_camp_1785242370] [WHATSAPP] 🎉 WhatsApp campaign completed! Sent: 0, Failed: 1

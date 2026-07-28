@@ -1070,6 +1070,26 @@ Please return ONLY the updated template text.`;
     } catch { }
   };
 
+  const handleDeleteJob = async (jobId, jobQuery) => {
+    showConfirm(`Are you sure you want to delete scrape job "${jobQuery || 'Dataset #' + jobId}"?`, async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/scraper/jobs/${jobId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || 'Scrape job deleted successfully.', 'success');
+          loadJobs();
+        } else {
+          showToast(data.detail || 'Failed to delete job.', 'error');
+        }
+      } catch {
+        showToast('Error deleting scrape job.', 'error');
+      }
+    });
+  };
+
   // WhatsApp status
   const checkWhatsAppStatus = async () => {
     try {
@@ -1492,7 +1512,7 @@ Please return ONLY the updated template text.`;
         setAdminPathaoNumber(data.pathao_number || '');
         setAdminPathaoAccountType(data.pathao_account_type || '');
       }
-    } catch {}
+    } catch { }
   };
 
   const handleSavePaymentSettings = async (e) => {
@@ -1531,7 +1551,7 @@ Please return ONLY the updated template text.`;
       });
       const data = await res.json();
       if (res.ok) setMyPaymentRequests(data);
-    } catch {}
+    } catch { }
   };
 
   const loadAdminPaymentRequests = async () => {
@@ -1542,7 +1562,7 @@ Please return ONLY the updated template text.`;
       });
       const data = await res.json();
       if (res.ok) setAdminPaymentRequests(data);
-    } catch {}
+    } catch { }
   };
 
   const handlePaymentSubmit = async (e) => {
@@ -1960,10 +1980,10 @@ Please return ONLY the updated template text.`;
   const renderContactSelectorModal = () => {
     if (!showContactSelectorModal) return null;
 
-    const filteredContacts = groupContacts.filter(c => 
-      !contactSearch || 
-      c.name.toLowerCase().includes(contactSearch.toLowerCase()) || 
-      c.phone.includes(contactSearch) || 
+    const filteredContacts = groupContacts.filter(c =>
+      !contactSearch ||
+      c.name.toLowerCase().includes(contactSearch.toLowerCase()) ||
+      c.phone.includes(contactSearch) ||
       c.email.toLowerCase().includes(contactSearch.toLowerCase()) ||
       c.area.toLowerCase().includes(contactSearch.toLowerCase())
     );
@@ -1971,7 +1991,7 @@ Please return ONLY the updated template text.`;
     return (
       <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999999, padding: '20px' }}>
         <div className="modal-content card" style={{ maxWidth: '850px', width: '95%', maxHeight: '88vh', border: '1px solid #06b6d4', padding: '24px', borderRadius: '12px', background: '#090d16', display: 'flex', flexDirection: 'column' }}>
-          
+
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
             <div>
@@ -1998,7 +2018,7 @@ Please return ONLY the updated template text.`;
               />
               <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
             </div>
-            
+
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
                 type="button"
@@ -2189,7 +2209,7 @@ Please return ONLY the updated template text.`;
         <div className="app-container">
           <aside className="sidebar">
             <div className="sidebar-header brand" style={{ cursor: 'pointer' }} onClick={() => setCurrentTab('catalog')}>
-              <BarChart3 size={18} style={{ color: '#06b6d4' }} /> MARKETING OSTAD 
+              <BarChart3 size={18} style={{ color: '#06b6d4' }} /> MARKETING OSTAD
               {user.role === 'superadmin' && <span style={{ fontSize: '0.65rem', background: '#a855f7', color: '#fff', padding: '2px 6px', borderRadius: '4px', marginLeft: '4px', fontWeight: 'bold' }}>SUPERADMIN</span>}
               {user.role === 'admin' && <span style={{ fontSize: '0.65rem', background: '#ef4444', color: '#fff', padding: '2px 6px', borderRadius: '4px', marginLeft: '4px' }}>ADMIN</span>}
             </div>
@@ -2249,9 +2269,9 @@ Please return ONLY the updated template text.`;
                 <User size={12} style={{ display: 'inline', opacity: 0.8, marginRight: '4px' }} /> {user.email}
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                <button 
+                <button
                   type="button"
-                  className="btn btn-primary btn-sm" 
+                  className="btn btn-primary btn-sm"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #eab308, #d97706)', color: '#000', fontWeight: 'bold', border: 'none' }}
                   onClick={() => { setShowPaymentModal(true); loadPaymentConfig(); loadMyPaymentRequests(); }}
                 >
@@ -2860,7 +2880,7 @@ Please return ONLY the updated template text.`;
               <div>
                 {/* Catalog Sub-Tab Navigation Header */}
                 <div className="tabs" style={{ marginBottom: '24px' }}>
-                  <button 
+                  <button
                     type="button"
                     className={`tab-btn ${catalogTab === 'public' ? 'active' : ''}`}
                     onClick={() => setCatalogTab('public')}
@@ -2868,7 +2888,7 @@ Please return ONLY the updated template text.`;
                   >
                     <Globe size={16} /> Public Datasets Catalog ({datasets.length})
                   </button>
-                  <button 
+                  <button
                     type="button"
                     className={`tab-btn ${catalogTab === 'private' ? 'active' : ''}`}
                     onClick={() => setCatalogTab('private')}
@@ -2957,13 +2977,13 @@ Please return ONLY the updated template text.`;
                 {catalogTab === 'private' && (
                   <div>
                     <div style={{ display: 'flex', gap: '20px', marginBottom: '24px', alignItems: 'center' }}>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        style={{ flex: '1' }} 
-                        placeholder="Search your private datasets..." 
-                        value={datasetListSearch} 
-                        onChange={(e) => setDatasetListSearch(e.target.value)} 
+                      <input
+                        type="text"
+                        className="form-control"
+                        style={{ flex: '1' }}
+                        placeholder="Search your private datasets..."
+                        value={datasetListSearch}
+                        onChange={(e) => setDatasetListSearch(e.target.value)}
                       />
                     </div>
 
@@ -2977,27 +2997,37 @@ Please return ONLY the updated template text.`;
                                 <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                                   <Lock size={12} /> PRIVATE SCRAPED LEAD
                                 </span>
-                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>#{job.id}</span>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>#{job.id}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteJob(job.id, job.query)}
+                                    title="Delete Scrape Job"
+                                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px', display: 'inline-flex', alignItems: 'center' }}
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
                               </div>
                               <h4 style={{ marginBottom: '8px', color: '#fff' }}>{job.query}</h4>
                               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Location: {job.area || job.district || 'BD'}</div>
                               <div style={{ fontSize: '0.8rem', color: '#22c55e', marginTop: '4px', fontWeight: 'bold' }}>Leads parsed: {job.result_count || 0} rows</div>
                             </div>
-                            
+
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '14px' }}>
                               <div style={{ display: 'flex', gap: '8px' }}>
-                                <button 
+                                <button
                                   type="button"
-                                  className="btn btn-secondary btn-sm" 
+                                  className="btn btn-secondary btn-sm"
                                   style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
                                   onClick={() => openDatasetDetails(`job_${job.id}`, 1)}
                                 >
                                   <Eye size={13} /> View Dataset
                                 </button>
 
-                                <button 
+                                <button
                                   type="button"
-                                  className="btn btn-secondary btn-sm" 
+                                  className="btn btn-secondary btn-sm"
                                   style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', background: 'rgba(6, 182, 212, 0.12)', borderColor: '#06b6d4', color: '#06b6d4' }}
                                   onClick={() => {
                                     setWaRecipientGroup(`job_${job.id}`);
@@ -3022,18 +3052,18 @@ Please return ONLY the updated template text.`;
                                   <CheckCircle2 size={14} /> Published to Public Catalog
                                 </button>
                               ) : (user?.role === 'admin' || user?.role === 'superadmin') ? (
-                                <button 
+                                <button
                                   type="button"
-                                  className="btn btn-primary btn-sm" 
+                                  className="btn btn-primary btn-sm"
                                   style={{ width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                                   onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}
                                 >
                                   <Database size={14} /> Promote to Public Catalog
                                 </button>
                               ) : (
-                                <button 
+                                <button
                                   type="button"
-                                  className="btn btn-primary btn-sm" 
+                                  className="btn btn-primary btn-sm"
                                   style={{ width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', background: 'linear-gradient(135deg, #06b6d4, #3b82f6)' }}
                                   onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}
                                 >
@@ -3334,46 +3364,76 @@ Please return ONLY the updated template text.`;
                     <div>
                       <div style={{ fontSize: '0.85rem' }}><strong>Query: {job.query}</strong></div>
                       <small style={{ color: 'var(--text-muted)', display: 'inline-flex', gap: '8px', marginTop: '2px' }}>
-                        <span>Status: <strong style={{ color: job.status === 'done' ? '#22c55e' : '#eab308' }}>{job.status}</strong></span> | 
+                        <span>Status: <strong style={{ color: job.status === 'done' ? '#22c55e' : '#eab308' }}>{job.status}</strong></span> |
                         <span>Scraped Leads: <strong>{job.result_count || 0} rows</strong></span>
                       </small>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                       {job.status === 'running' ? (
                         <button className="btn btn-secondary btn-sm" onClick={() => pollScrapeJob(job.id)}>Logs</button>
-                      ) : job.status === 'done' ? (
+                      ) : (
                         <>
-                          {/* 1. USE LEADS BUTTON: Available for ALL USERS & ADMIN */}
-                          <button 
-                            type="button"
-                            className="btn btn-secondary btn-sm" 
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(6, 182, 212, 0.12)', borderColor: '#06b6d4', color: '#06b6d4' }}
-                            onClick={() => {
-                              setWaRecipientGroup(`job_${job.id}`);
-                              setEmailRecipientGroup(`job_${job.id}`);
-                              loadRecipientContacts(`job_${job.id}`);
-                              setCurrentTab('marketing');
-                              setMarketingSubTab('whatsapp');
-                              showToast(`Loaded "${job.query}" leads for campaign dispatch!`, 'success');
-                            }}
-                          >
-                            <Play size={13} /> Use Leads (Private)
-                          </button>
-
-                          {/* 2. PROMOTE BUTTON: Available ONLY for ADMIN */}
-                          {(user?.role === 'admin' || user?.role === 'superadmin') && (
-                            <button 
+                          {/* 1. VIEW BUTTON: View / Add Private Catalogue */}
+                          {job.status === 'done' && (
+                            <button
                               type="button"
-                              className="btn btn-primary btn-sm" 
+                              className="btn btn-secondary btn-sm"
                               style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                              onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}
+                              title="View Dataset / Add Private Catalogue"
+                              onClick={() => {
+                                openDatasetDetails(`job_${job.id}`, 1);
+                                setCurrentTab('catalog');
+                                setCatalogTab('private');
+                              }}
                             >
-                              <Database size={13} /> Promote to Catalog
+                              <Eye size={13} />
                             </button>
                           )}
+
+                          {/* 2. USE BUTTON: Use directly in WhatsApp Campaign */}
+                          {job.status === 'done' && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(6, 182, 212, 0.12)', borderColor: '#06b6d4', color: '#06b6d4' }}
+                              title="Use directly in WhatsApp Campaign"
+                              onClick={() => {
+                                setWaRecipientGroup(`job_${job.id}`);
+                                setEmailRecipientGroup(`job_${job.id}`);
+                                loadRecipientContacts(`job_${job.id}`);
+                                setCurrentTab('marketing');
+                                setMarketingSubTab('whatsapp');
+                                showToast(`Loaded "${job.query}" leads for WhatsApp campaign!`, 'success');
+                              }}
+                            >
+                              <MessageSquare size={13} />
+                            </button>
+                          )}
+
+                          {/* 3. PROMOTE BUTTON (Admin optional) */}
+                          {job.status === 'done' && (user?.role === 'admin' || user?.role === 'superadmin') && (
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                              title="Promote to Catalog"
+                              onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}
+                            >
+                              <Database size={13} />
+                            </button>
+                          )}
+
+                          {/* 4. DELETE BUTTON */}
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(239, 68, 68, 0.15)', borderColor: '#ef4444', color: '#ef4444' }}
+                            title="Delete Scrape Job"
+                            onClick={() => handleDeleteJob(job.id, job.query)}
+                          >
+                            <Trash2 size={13} />
+                          </button>
                         </>
-                      ) : (
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Finished</span>
                       )}
                     </div>
                   </div>
@@ -4281,13 +4341,13 @@ Please return ONLY the updated template text.`;
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{req.email}</div>
                           </td>
                           <td>
-                            <span style={{ 
-                              background: (req.payment_method || 'bkash') === 'bkash' ? 'rgba(226, 19, 110, 0.2)' : 'rgba(239, 68, 68, 0.2)', 
-                              color: (req.payment_method || 'bkash') === 'bkash' ? '#e2136e' : '#ef4444', 
-                              padding: '3px 8px', 
-                              borderRadius: '4px', 
-                              fontSize: '0.75rem', 
-                              fontWeight: 'bold' 
+                            <span style={{
+                              background: (req.payment_method || 'bkash') === 'bkash' ? 'rgba(226, 19, 110, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                              color: (req.payment_method || 'bkash') === 'bkash' ? '#e2136e' : '#ef4444',
+                              padding: '3px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.75rem',
+                              fontWeight: 'bold'
                             }}>
                               {(req.payment_method || 'bkash').toUpperCase()}
                             </span>
@@ -4310,13 +4370,13 @@ Please return ONLY the updated template text.`;
                           <td>
                             {req.status === 'pending' ? (
                               <div style={{ display: 'flex', gap: '8px' }}>
-                                <button 
+                                <button
                                   className="btn btn-primary btn-sm"
                                   onClick={() => approveAdminPayment(req.id)}
                                 >
                                   ✅ Approve & Add Credits
                                 </button>
-                                <button 
+                                <button
                                   className="btn btn-secondary btn-sm"
                                   onClick={() => rejectAdminPayment(req.id)}
                                 >
@@ -4362,33 +4422,33 @@ Please return ONLY the updated template text.`;
 
                       <div className="form-group" style={{ marginBottom: '14px' }}>
                         <label>bKash Phone Number</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          value={adminBkashNumber} 
-                          onChange={(e) => setAdminBkashNumber(e.target.value)} 
-                          placeholder="Enter bKash phone number..." 
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={adminBkashNumber}
+                          onChange={(e) => setAdminBkashNumber(e.target.value)}
+                          placeholder="Enter bKash phone number..."
                         />
                       </div>
 
                       <div className="form-group" style={{ marginBottom: '14px' }}>
                         <label>bKash Account Type</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          value={adminBkashAccountType} 
-                          onChange={(e) => setAdminBkashAccountType(e.target.value)} 
-                          placeholder="e.g. Personal (Send Money)" 
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={adminBkashAccountType}
+                          onChange={(e) => setAdminBkashAccountType(e.target.value)}
+                          placeholder="e.g. Personal (Send Money)"
                         />
                       </div>
 
                       <div className="form-group">
                         <label>Upload New bKash QR Code (Image)</label>
-                        <input 
-                          type="file" 
-                          className="form-control" 
-                          accept="image/*" 
-                          onChange={(e) => setAdminBkashQrFile(e.target.files[0])} 
+                        <input
+                          type="file"
+                          className="form-control"
+                          accept="image/*"
+                          onChange={(e) => setAdminBkashQrFile(e.target.files[0])}
                         />
                         {paymentConfig.bkash_qr_url && (
                           <div style={{ marginTop: '10px', fontSize: '0.8rem', color: '#22c55e' }}>
@@ -4406,33 +4466,33 @@ Please return ONLY the updated template text.`;
 
                       <div className="form-group" style={{ marginBottom: '14px' }}>
                         <label>Pathao Pay Phone Number</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          value={adminPathaoNumber} 
-                          onChange={(e) => setAdminPathaoNumber(e.target.value)} 
-                          placeholder="Enter Pathao Pay phone number..." 
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={adminPathaoNumber}
+                          onChange={(e) => setAdminPathaoNumber(e.target.value)}
+                          placeholder="Enter Pathao Pay phone number..."
                         />
                       </div>
 
                       <div className="form-group" style={{ marginBottom: '14px' }}>
                         <label>Pathao Pay Account Type</label>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          value={adminPathaoAccountType} 
-                          onChange={(e) => setAdminPathaoAccountType(e.target.value)} 
-                          placeholder="e.g. Personal / Merchant" 
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={adminPathaoAccountType}
+                          onChange={(e) => setAdminPathaoAccountType(e.target.value)}
+                          placeholder="e.g. Personal / Merchant"
                         />
                       </div>
 
                       <div className="form-group">
                         <label>Upload New Pathao Pay QR Code (Image)</label>
-                        <input 
-                          type="file" 
-                          className="form-control" 
-                          accept="image/*" 
-                          onChange={(e) => setAdminPathaoQrFile(e.target.files[0])} 
+                        <input
+                          type="file"
+                          className="form-control"
+                          accept="image/*"
+                          onChange={(e) => setAdminPathaoQrFile(e.target.files[0])}
                         />
                         {paymentConfig.pathao_qr_url && (
                           <div style={{ marginTop: '10px', fontSize: '0.8rem', color: '#22c55e' }}>
@@ -4480,13 +4540,13 @@ Please return ONLY the updated template text.`;
                           <td><span className="digital-text">{req.row_count}</span> rows</td>
                           <td>
                             <div style={{ display: 'flex', gap: '8px' }}>
-                              <button 
+                              <button
                                 className="btn btn-primary btn-sm"
                                 onClick={() => approveAdminPromotionRequest(req.id)}
                               >
                                 ✅ Approve & Publish
                               </button>
-                              <button 
+                              <button
                                 className="btn btn-secondary btn-sm"
                                 onClick={() => rejectAdminPromotionRequest(req.id)}
                               >
@@ -4649,10 +4709,10 @@ Please return ONLY the updated template text.`;
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '32px' }}>
               {paymentConfig.packages?.map(pkg => (
-                <div 
-                  key={pkg.id} 
+                <div
+                  key={pkg.id}
                   className={`card ${pkg.popular ? 'glowing-panel' : ''}`}
-                  style={{ 
+                  style={{
                     border: pkg.popular ? '2px solid #eab308' : '1px solid var(--border-subtle)',
                     background: pkg.popular ? 'rgba(234, 179, 8, 0.05)' : 'rgba(255,255,255,0.02)',
                     display: 'flex',
@@ -4681,8 +4741,8 @@ Please return ONLY the updated template text.`;
                     </p>
                   </div>
 
-                  <button 
-                    className="btn btn-primary" 
+                  <button
+                    className="btn btn-primary"
                     style={{ width: '100%', padding: '12px', background: pkg.popular ? 'linear-gradient(135deg, #eab308, #d97706)' : 'linear-gradient(135deg, #06b6d4, #3b82f6)', color: pkg.popular ? '#000' : '#fff', fontWeight: 'bold', border: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                     onClick={() => {
                       setSelectedPackage(pkg);
@@ -4700,10 +4760,10 @@ Please return ONLY the updated template text.`;
                 <div>
                   <h4 style={{ color: '#fff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}><Settings size={18} /> Custom Upgrade</h4>
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px' }}>Enter the exact credit amount your team requires:</p>
-                  
+
                   <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <input 
-                      type="number" 
+                    <input
+                      type="number"
                       className="form-control"
                       value={customCredits}
                       onChange={(e) => setCustomCredits(e.target.value)}
@@ -4717,8 +4777,8 @@ Please return ONLY the updated template text.`;
                   </div>
                 </div>
 
-                <button 
-                  className="btn btn-secondary" 
+                <button
+                  className="btn btn-secondary"
                   style={{ width: '100%', padding: '12px', borderColor: '#06b6d4', color: '#06b6d4', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                   onClick={() => {
                     setSelectedPackage('custom');
@@ -4753,8 +4813,8 @@ Please return ONLY the updated template text.`;
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '1.6' }}>
                   Payments are accepted via <strong>bKash Send Money</strong> and <strong>Pathao Pay</strong> with official QR codes. Once you submit your Transaction ID (TrxID), our Superadmin team verifies and credits your account balance.
                 </p>
-                <button 
-                  className="btn btn-secondary btn-sm" 
+                <button
+                  className="btn btn-secondary btn-sm"
                   style={{ marginTop: '14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   onClick={() => { setPaymentModalTab('history'); setShowPaymentModal(true); loadMyPaymentRequests(); }}
                 >
@@ -4991,7 +5051,7 @@ Please return ONLY the updated template text.`;
         {showPaymentModal && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999999, padding: '20px' }}>
             <div className="card glowing-panel" style={{ width: '100%', maxWidth: '780px', maxHeight: '90vh', overflowY: 'auto', border: '1px solid #06b6d4', padding: '28px', borderRadius: '16px', background: '#090d16' }}>
-              
+
               {/* Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px' }}>
                 <div>
@@ -5007,14 +5067,14 @@ Please return ONLY the updated template text.`;
 
               {/* Top Tabs */}
               <div className="tabs" style={{ marginBottom: '24px' }}>
-                <button 
+                <button
                   className={`tab-btn ${paymentModalTab === 'buy' ? 'active' : ''}`}
                   onClick={() => setPaymentModalTab('buy')}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
                   <ShoppingCart size={15} /> Purchase Wizard (4 Steps)
                 </button>
-                <button 
+                <button
                   className={`tab-btn ${paymentModalTab === 'history' ? 'active' : ''}`}
                   onClick={() => { setPaymentModalTab('history'); loadMyPaymentRequests(); }}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
@@ -5063,15 +5123,15 @@ Please return ONLY the updated template text.`;
                   {paymentStep === 1 && (
                     <div>
                       <h4 style={{ marginBottom: '14px', color: '#fff' }}>Step 1: Choose Credit Package & Payment Method</h4>
-                      
+
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
                         {paymentConfig.packages?.map(pkg => (
-                          <div 
+                          <div
                             key={pkg.id}
                             onClick={() => setSelectedPackage(pkg)}
                             className="card"
-                            style={{ 
-                              cursor: 'pointer', 
+                            style={{
+                              cursor: 'pointer',
                               border: selectedPackage?.id === pkg.id ? '2px solid #eab308' : '1px solid var(--border-subtle)',
                               background: selectedPackage?.id === pkg.id ? 'rgba(234, 179, 8, 0.1)' : 'rgba(255,255,255,0.02)',
                               position: 'relative',
@@ -5097,11 +5157,11 @@ Please return ONLY the updated template text.`;
                         ))}
 
                         {/* Custom Amount Option */}
-                        <div 
+                        <div
                           onClick={() => setSelectedPackage('custom')}
                           className="card"
-                          style={{ 
-                            cursor: 'pointer', 
+                          style={{
+                            cursor: 'pointer',
                             border: selectedPackage === 'custom' ? '2px solid #06b6d4' : '1px solid var(--border-subtle)',
                             background: selectedPackage === 'custom' ? 'rgba(6, 182, 212, 0.1)' : 'rgba(255,255,255,0.02)',
                             padding: '16px'
@@ -5109,8 +5169,8 @@ Please return ONLY the updated template text.`;
                         >
                           <h5 style={{ margin: '0 0 8px 0', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={16} /> Custom Amount</h5>
                           <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Enter credits needed:</label>
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             className="form-control"
                             style={{ width: '100%', margin: '6px 0' }}
                             value={customCredits}
@@ -5126,7 +5186,7 @@ Please return ONLY the updated template text.`;
                       {/* Payment Method Selector */}
                       <h5 style={{ marginBottom: '12px', color: '#fff' }}>Select Payment Method:</h5>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-                        <div 
+                        <div
                           onClick={() => setSelectedMethod('bkash')}
                           style={{
                             padding: '16px',
@@ -5149,7 +5209,7 @@ Please return ONLY the updated template text.`;
                           </div>
                         </div>
 
-                        <div 
+                        <div
                           onClick={() => setSelectedMethod('pathao_pay')}
                           style={{
                             padding: '16px',
@@ -5173,8 +5233,8 @@ Please return ONLY the updated template text.`;
                         </div>
                       </div>
 
-                      <button 
-                        className="btn btn-primary" 
+                      <button
+                        className="btn btn-primary"
                         style={{ width: '100%', fontSize: '1rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                         onClick={() => {
                           if (!selectedPackage) setSelectedPackage('custom');
@@ -5211,14 +5271,14 @@ Please return ONLY the updated template text.`;
                             Account Type: <strong>{selectedMethod === 'bkash' ? paymentConfig.bkash_account_type : paymentConfig.pathao_account_type}</strong>
                           </div>
 
-                          <button 
+                          <button
                             type="button"
                             className="btn btn-secondary btn-sm"
-                            style={{ 
-                              width: '100%', 
-                              background: copiedNumber ? '#22c55e' : (selectedMethod === 'bkash' ? '#e2136e' : '#ef4444'), 
-                              color: '#fff', 
-                              borderColor: copiedNumber ? '#22c55e' : (selectedMethod === 'bkash' ? '#e2136e' : '#ef4444'), 
+                            style={{
+                              width: '100%',
+                              background: copiedNumber ? '#22c55e' : (selectedMethod === 'bkash' ? '#e2136e' : '#ef4444'),
+                              color: '#fff',
+                              borderColor: copiedNumber ? '#22c55e' : (selectedMethod === 'bkash' ? '#e2136e' : '#ef4444'),
                               fontWeight: 'bold',
                               display: 'inline-flex',
                               alignItems: 'center',
@@ -5241,36 +5301,36 @@ Please return ONLY the updated template text.`;
                         {/* QR Code Container */}
                         <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', padding: '20px', borderRadius: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                           <h5 style={{ margin: '0 0 10px 0', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}><QrCode size={16} /> Scan {selectedMethod === 'bkash' ? 'bKash' : 'Pathao Pay'} QR Code</h5>
-                          
+
                           <div style={{ width: '160px', height: '160px', background: '#fff', padding: '8px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 14px rgba(0,0,0,0.3)' }}>
                             {selectedMethod === 'bkash' ? (
                               paymentConfig.bkash_qr_url ? (
-                                <img 
-                                  src={`${API_BASE}${paymentConfig.bkash_qr_url}`} 
-                                  alt="bKash QR Code" 
+                                <img
+                                  src={`${API_BASE}${paymentConfig.bkash_qr_url}`}
+                                  alt="bKash QR Code"
                                   style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                                 />
                               ) : (
                                 <div style={{ color: '#e2136e', fontSize: '0.8rem', textAlign: 'center', fontWeight: 'bold' }}>
-                                  <QrCode size={24} style={{ marginBottom: '4px' }} /><br/>
-                                  bKash QR<br/>
+                                  <QrCode size={24} style={{ marginBottom: '4px' }} /><br />
+                                  bKash QR<br />
                                   <span style={{ fontSize: '0.72rem', color: '#475569', fontWeight: 'normal' }}>
-                                    Use Send Money to:<br/>
+                                    Use Send Money to:<br />
                                     <strong style={{ color: '#e2136e' }}>{paymentConfig.bkash_number}</strong>
                                   </span>
                                 </div>
                               )
                             ) : (
                               paymentConfig.pathao_qr_url ? (
-                                <img 
-                                  src={`${API_BASE}${paymentConfig.pathao_qr_url}`} 
-                                  alt="Pathao Pay QR Code" 
+                                <img
+                                  src={`${API_BASE}${paymentConfig.pathao_qr_url}`}
+                                  alt="Pathao Pay QR Code"
                                   style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                                 />
                               ) : (
-                                <img 
-                                  src={pathaoQrImg} 
-                                  alt="Pathao Pay QR Code" 
+                                <img
+                                  src={pathaoQrImg}
+                                  alt="Pathao Pay QR Code"
                                   style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                                 />
                               )
@@ -5301,49 +5361,49 @@ Please return ONLY the updated template text.`;
                   {paymentStep === 3 && (
                     <div>
                       <h4 style={{ marginBottom: '14px', color: '#fff' }}>Step 3: Reference & Transaction Details</h4>
-                      
+
                       <form onSubmit={handlePaymentSubmit} style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-subtle)', marginBottom: '24px' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                           <div className="form-group">
                             <label>Customer Full Name *</label>
-                            <input 
-                              type="text" 
-                              className="form-control" 
-                              value={refUserName} 
-                              onChange={(e) => setRefUserName(e.target.value)} 
-                              required 
+                            <input
+                              type="text"
+                              className="form-control"
+                              value={refUserName}
+                              onChange={(e) => setRefUserName(e.target.value)}
+                              required
                             />
                           </div>
                           <div className="form-group">
                             <label>Customer Email Address *</label>
-                            <input 
-                              type="email" 
-                              className="form-control" 
-                              value={refUserEmail} 
-                              onChange={(e) => setRefUserEmail(e.target.value)} 
-                              required 
+                            <input
+                              type="email"
+                              className="form-control"
+                              value={refUserEmail}
+                              onChange={(e) => setRefUserEmail(e.target.value)}
+                              required
                             />
                           </div>
                           <div className="form-group">
                             <label>Sender Phone Number *</label>
-                            <input 
-                              type="text" 
-                              className="form-control" 
-                              placeholder="e.g. 01824500704" 
-                              value={refUserPhone} 
-                              onChange={(e) => setRefUserPhone(e.target.value)} 
-                              required 
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="e.g. 01824500704"
+                              value={refUserPhone}
+                              onChange={(e) => setRefUserPhone(e.target.value)}
+                              required
                             />
                           </div>
                           <div className="form-group">
                             <label>{selectedMethod === 'bkash' ? 'bKash' : 'Pathao Pay'} Transaction ID (TrxID) *</label>
-                            <input 
-                              type="text" 
-                              className="form-control" 
-                              placeholder="e.g. 8N7A6B5C4D" 
-                              value={refTrxId} 
-                              onChange={(e) => setRefTrxId(e.target.value)} 
-                              required 
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="e.g. 8N7A6B5C4D"
+                              value={refTrxId}
+                              onChange={(e) => setRefTrxId(e.target.value)}
+                              required
                               style={{ textTransform: 'uppercase', letterSpacing: '1px' }}
                             />
                           </div>
@@ -5385,8 +5445,8 @@ Please return ONLY the updated template text.`;
                         <div style={{ fontSize: '0.85rem' }}>Credits Requested: <strong style={{ color: '#eab308' }}>+{selectedPackage && selectedPackage !== 'custom' ? selectedPackage.credits : customCredits} CR</strong></div>
                       </div>
 
-                      <button 
-                        className="btn btn-primary" 
+                      <button
+                        className="btn btn-primary"
                         style={{ padding: '12px 30px', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
                         onClick={() => { setPaymentModalTab('history'); loadMyPaymentRequests(); }}
                       >
@@ -5456,14 +5516,14 @@ Please return ONLY the updated template text.`;
                 <AlertTriangle size={22} style={{ color: '#06b6d4' }} />
                 <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem' }}>{confirmModal.title || 'Confirmation Needed'}</h3>
               </div>
-              
+
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '20px', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
                 {confirmModal.message}
               </p>
 
               {confirmModal.inputConfig && (
                 <div className="form-group" style={{ marginBottom: '20px' }}>
-                  <input 
+                  <input
                     type={confirmModal.inputConfig.type || 'text'}
                     className="form-control"
                     style={{ width: '100%', fontSize: '0.95rem' }}
@@ -5482,16 +5542,16 @@ Please return ONLY the updated template text.`;
               )}
 
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                <button 
-                  type="button" 
-                  className="btn btn-secondary" 
+                <button
+                  type="button"
+                  className="btn btn-secondary"
                   onClick={confirmModal.onCancel}
                 >
                   Cancel
                 </button>
-                <button 
-                  type="button" 
-                  className="btn btn-primary" 
+                <button
+                  type="button"
+                  className="btn btn-primary"
                   onClick={() => {
                     const inputEl = document.getElementById('confirm-modal-input');
                     const val = inputEl ? inputEl.value : true;
@@ -5513,8 +5573,8 @@ Please return ONLY the updated template text.`;
                 {(user?.role === 'admin' || user?.role === 'superadmin') ? '📁 Promote Scraped Job to Public Catalog' : '📥 Request Dataset Promotion'}
               </h3>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-                {(user?.role === 'admin' || user?.role === 'superadmin') 
-                  ? 'Promote this dataset directly to the public catalog for all users.' 
+                {(user?.role === 'admin' || user?.role === 'superadmin')
+                  ? 'Promote this dataset directly to the public catalog for all users.'
                   : 'Submit a request to Admin to publish this dataset in the public catalog.'}
               </p>
               <form onSubmit={handlePromoteSubmit}>

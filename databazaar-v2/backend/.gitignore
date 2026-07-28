@@ -16,6 +16,9 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
+*.pyc
+__pycache__    
+._pycache__
 .DS_Store
 .whatsapp_session
 .uploads

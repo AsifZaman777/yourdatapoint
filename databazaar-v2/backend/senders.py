@@ -44,9 +44,32 @@ def format_phone(phone):
         cleaned = "880" + cleaned
     return cleaned
 
+_active_setup_driver = None
+
+def get_active_setup_driver():
+    global _active_setup_driver
+    return _active_setup_driver
+
+def set_active_setup_driver(driver):
+    global _active_setup_driver
+    _active_setup_driver = driver
+
+def close_active_setup_driver():
+    global _active_setup_driver
+    if _active_setup_driver:
+        try:
+            _active_setup_driver.quit()
+        except Exception:
+            pass
+        _active_setup_driver = None
+
 def cleanup_profile_locks(profile_path):
     """Remove Chrome Singleton locks that cause Chrome to drop persistent profile sessions"""
-    lock_files = ["SingletonLock", "SingletonCookie", "SingletonSocket"]
+    lock_files = [
+        "SingletonLock", "SingletonCookie", "SingletonSocket", "DevToolsActivePort", "LOCK",
+        os.path.join("Default", "LOCK"),
+        os.path.join("Default", "WebStorage", "QuotaManager-journal")
+    ]
     for lock in lock_files:
         lock_p = os.path.join(profile_path, lock)
         if os.path.exists(lock_p) or os.path.islink(lock_p):
@@ -55,21 +78,43 @@ def cleanup_profile_locks(profile_path):
             except Exception:
                 pass
 
+def fix_chrome_preferences(profile_path):
+    """Ensure Chrome exit_type is Normal and exited_cleanly is true to preserve IndexedDB & cookies session"""
+    pref_path = os.path.join(profile_path, "Default", "Preferences")
+    if os.path.exists(pref_path):
+        try:
+            import json
+            with open(pref_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                modified = False
+                if "profile" in data and isinstance(data["profile"], dict):
+                    data["profile"]["exit_type"] = "Normal"
+                    data["profile"]["exited_cleanly"] = True
+                    modified = True
+                if modified:
+                    with open(pref_path, "w", encoding="utf-8") as f:
+                        json.dump(data, f)
+        except Exception:
+            pass
+
 def setup_driver():
     """Setup Chrome options and persistence profile directory"""
     options = Options()
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     options.add_experimental_option("useAutomationExtension", False)
     options.add_argument("--window-size=1400,900")
     options.add_argument("--disable-session-crashed-bubble")
     options.add_argument("--disable-infobars")
+    options.add_argument("--restore-last-session")
 
     profile_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whatsapp_session")
     os.makedirs(profile_path, exist_ok=True)
     cleanup_profile_locks(profile_path)
+    fix_chrome_preferences(profile_path)
 
     options.add_argument(f"--user-data-dir={profile_path}")
     options.add_argument("--profile-directory=Default")
@@ -174,6 +219,7 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
     log_status(f"Campaign started. Preparing Selenium WhatsApp session...")
     log_status(f"Starting from contact index: {start_index} | Total contacts: {len(contacts)}")
 
+    close_active_setup_driver()
     driver = None
     try:
         driver = setup_driver()

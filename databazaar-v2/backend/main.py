@@ -832,6 +832,31 @@ def get_job_status(job_id: int, current_user: dict = Depends(get_current_user)):
         "logs": [f"[{l['created_at'].split(' ')[1] if ' ' in l['created_at'] else l['created_at']}] {l['message']}" for l in logs]
     }
 
+@app.delete("/api/scraper/jobs/{job_id}")
+def delete_scrape_job(job_id: int, current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
+    if not job:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Scrape job not found.")
+
+    if current_user["role"] not in ("admin", "superadmin") and job["user_id"] != current_user["id"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="You do not have permission to delete this scrape job.")
+
+    if job["result_path"] and os.path.exists(job["result_path"]):
+        try:
+            os.remove(job["result_path"])
+        except Exception:
+            pass
+
+    conn.execute("DELETE FROM scrape_logs WHERE job_id = ?", (job_id,))
+    conn.execute("DELETE FROM whatsapp_progress WHERE recipient_group = ?", (f"job_{job_id}",))
+    conn.execute("DELETE FROM scrape_jobs WHERE id = ?", (job_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Scrape job deleted successfully."}
+
 @app.post("/api/scraper/jobs/{job_id}/promote")
 @app.post("/api/scraper/jobs/{job_id}/request-promote")
 def request_promote_job(job_id: int, category: str = Form(...), name: str = Form(...), current_user: dict = Depends(get_current_user)):
@@ -1101,6 +1126,9 @@ def whatsapp_status():
         local_storage_path = os.path.join(profile, "Default", "Local Storage")
         if os.path.exists(indexed_db_path) or os.path.exists(local_storage_path):
             for root, dirs, files in os.walk(profile):
+                if "whatsapp" in root.lower():
+                    has_files = True
+                    break
                 for f in files:
                     if f.endswith(".leveldb") or f.endswith(".ldb") or "whatsapp" in f.lower():
                         has_files = True
@@ -1114,23 +1142,26 @@ def whatsapp_status():
 
 @app.get("/api/marketing/whatsapp-setup-session")
 def whatsapp_setup(background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
-    from senders import setup_driver, wait_for_whatsapp_login
+    from senders import setup_driver, wait_for_whatsapp_login, set_active_setup_driver, close_active_setup_driver
     def scan_runner():
         try:
+            close_active_setup_driver()
             driver = setup_driver()
+            set_active_setup_driver(driver)
             is_logged_in = wait_for_whatsapp_login(driver)
             if is_logged_in:
-                time.sleep(10)
-            driver.quit()
+                time.sleep(3)
+            close_active_setup_driver()
         except Exception:
-            pass
+            close_active_setup_driver()
     background_tasks.add_task(scan_runner)
     return {"success": True, "message": "Chrome launched! Scan QR code or view active WhatsApp chats in browser."}
 
 @app.post("/api/marketing/whatsapp-reset-session")
 def whatsapp_reset_session(background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     import shutil
-    from senders import setup_driver, wait_for_whatsapp_login
+    from senders import setup_driver, wait_for_whatsapp_login, set_active_setup_driver, close_active_setup_driver
+    close_active_setup_driver()
     profile = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whatsapp_session")
     if os.path.exists(profile):
         try:
@@ -1141,11 +1172,13 @@ def whatsapp_reset_session(background_tasks: BackgroundTasks, current_user: dict
     def scan_runner():
         try:
             driver = setup_driver()
-            wait_for_whatsapp_login(driver)
-            time.sleep(10)
-            driver.quit()
+            set_active_setup_driver(driver)
+            is_logged_in = wait_for_whatsapp_login(driver)
+            if is_logged_in:
+                time.sleep(3)
+            close_active_setup_driver()
         except Exception:
-            pass
+            close_active_setup_driver()
     background_tasks.add_task(scan_runner)
     return {"success": True, "message": "WhatsApp session cleared! Chrome launched to scan new QR code."}
 
