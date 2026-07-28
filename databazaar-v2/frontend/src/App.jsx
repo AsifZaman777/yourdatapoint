@@ -62,15 +62,26 @@ import {
   ArrowRight,
   ArrowLeft,
   ExternalLink,
-  Eye
+  Eye,
+  ChartBarBig
 } from 'lucide-react';
 
 const getApiBase = () => {
-  const envBase = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
-  if (envBase.includes('localhost') && window.location.hostname !== 'localhost') {
-    return envBase.replace('localhost', window.location.hostname);
+  const envBase = import.meta.env.VITE_API_BASE;
+  const currentHost = window.location.hostname || '127.0.0.1';
+
+  // If accessing on local machine (localhost or 127.0.0.1), route directly to local backend
+  if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
+    return 'http://127.0.0.1:8000';
   }
-  return envBase;
+
+  // If VITE_API_BASE is explicitly set, use it for custom production/remote domains
+  if (envBase) {
+    return envBase.replace(/\/$/, '');
+  }
+
+  // Fallback to current network hostname on port 8000
+  return `http://${currentHost}:8000`;
 };
 const API_BASE = getApiBase();
 const SUPPORT_EMAIL = import.meta.env.VITE_SUPPORT_EMAIL || 'asifdev777@gmail.com';
@@ -80,7 +91,19 @@ const SUPPORT_HOURS = import.meta.env.VITE_SUPPORT_HOURS || '24/7 Automated Syst
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [user, setUser] = useState(null);
-  const [currentTab, setCurrentTab] = useState('home');
+  const [currentTab, setCurrentTabState] = useState(() => {
+    const saved = localStorage.getItem('currentTab');
+    if (saved && saved !== 'home' && saved !== 'auth') return saved;
+    return localStorage.getItem('token') ? 'catalog' : 'home';
+  });
+
+  const setCurrentTab = (tab) => {
+    setCurrentTabState(tab);
+    if (tab && tab !== 'home' && tab !== 'auth') {
+      localStorage.setItem('currentTab', tab);
+    }
+  };
+
   const [authView, setAuthView] = useState('login'); // 'login' or 'register'
   const [authVerificationNotice, setAuthVerificationNotice] = useState('');
   const [lang, setLang] = useState(localStorage.getItem('lang') || 'en');
@@ -100,26 +123,89 @@ export default function App() {
   const [warningMsgInput, setWarningMsgInput] = useState('');
   const [securityAlertModal, setSecurityAlertModal] = useState(null); // null or { violationType, time }
 
+  // Scraper Rate Limit 2-minute cooldown timer state
+  const [scrapeRateLimit, setScrapeRateLimit] = useState(() => {
+    const until = localStorage.getItem('scrapeRateLimitUntil');
+    if (until) {
+      const remaining = Math.ceil((parseInt(until, 10) - Date.now()) / 1000);
+      return remaining > 0 ? remaining : 0;
+    }
+    return 0;
+  });
+
+  useEffect(() => {
+    let timerId = null;
+    if (scrapeRateLimit > 0) {
+      timerId = setInterval(() => {
+        setScrapeRateLimit((prev) => {
+          if (prev <= 1) {
+            localStorage.removeItem('scrapeRateLimitUntil');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+  }, [scrapeRateLimit]);
+
+  // Dataset Requests Portal states
+  const [reqCategoryTags, setReqCategoryTags] = useState([]);
+  const [reqCategoryInput, setReqCategoryInput] = useState('');
+  const [reqDivision, setReqDivision] = useState('');
+  const [reqDistrict, setReqDistrict] = useState('');
+  const [reqArea, setReqArea] = useState('');
+  const [reqDivisionCustom, setReqDivisionCustom] = useState('');
+  const [reqDistrictCustom, setReqDistrictCustom] = useState('');
+  const [reqAreaCustom, setReqAreaCustom] = useState('');
+  const [reqBusinessName, setReqBusinessName] = useState('');
+  const [reqPhone, setReqPhone] = useState('');
+  const [reqNotes, setReqNotes] = useState('');
+  const [myDatasetRequests, setMyDatasetRequests] = useState([]);
+  const [adminDatasetRequests, setAdminDatasetRequests] = useState([]);
+  const [submittingReq, setSubmittingReq] = useState(false);
+  const [requestActionModal, setRequestActionModal] = useState(null);
+  const [requestNotifyChannel, setRequestNotifyChannel] = useState('email');
+  const [requestCustomMsg, setRequestCustomMsg] = useState('');
+  const [updatingReqStatus, setUpdatingReqStatus] = useState(false);
+
   // Auto-verify email token from URL query string
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const verifyToken = params.get('verify_token');
     if (verifyToken) {
-      fetch(`${API_BASE}/api/auth/verify-email?token=${verifyToken}`)
-        .then(res => res.json())
-        .then(data => {
+      const doVerify = async () => {
+        const tokenParam = encodeURIComponent(verifyToken.trim());
+        const primaryUrl = `${API_BASE}/api/auth/verify-email?token=${tokenParam}`;
+        const host = window.location.hostname || '127.0.0.1';
+        const fallbackUrl = `http://${host}:8000/api/auth/verify-email?token=${tokenParam}`;
+
+        try {
+          let res = await fetch(primaryUrl).catch(() => null);
+          if (!res) {
+            res = await fetch(fallbackUrl).catch(() => null);
+          }
+          if (!res) {
+            showToast('Failed to connect to verification server. Please check backend status.', 'error');
+            return;
+          }
+          const data = await res.json();
           if (data.success) {
             showToast(data.message || 'Email verified successfully! You can now log in.', 'success');
             setCurrentTab('auth');
             setAuthView('login');
           } else {
-            showToast(data.detail || 'Email verification failed.', 'error');
+            showToast(data.message || data.detail || 'This verification link is invalid or has already been used.', 'warning');
+            setCurrentTab('auth');
+            setAuthView('login');
           }
+        } catch (err) {
+          console.error('Email verification error:', err);
+          showToast('Failed to connect to verification server.', 'error');
+        } finally {
           window.history.replaceState({}, document.title, window.location.pathname);
-        })
-        .catch(() => {
-          showToast('Error verifying email link.', 'error');
-        });
+        }
+      };
+      doVerify();
     }
   }, []);
 
@@ -312,6 +398,7 @@ export default function App() {
   // Payment Module states
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentConfig, setPaymentConfig] = useState({ bkash_number: '', bkash_account_type: '', bkash_qr_url: '', pathao_number: '', pathao_account_type: '', pathao_qr_url: '', packages: [] });
+  const [paymentPackages, setPaymentPackages] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [customCredits, setCustomCredits] = useState(100);
   const [myPaymentRequests, setMyPaymentRequests] = useState([]);
@@ -901,11 +988,22 @@ Please return ONLY the updated template text.`;
       const data = await res.json();
       if (res.ok) {
         setUser(data);
+        setCurrentTabState(prev => {
+          if (prev === 'home' || prev === 'auth') {
+            const saved = localStorage.getItem('currentTab');
+            return (saved && saved !== 'home' && saved !== 'auth') ? saved : 'catalog';
+          }
+          return prev;
+        });
       } else {
         setToken('');
+        localStorage.removeItem('token');
+        localStorage.removeItem('currentTab');
       }
     } catch {
       setToken('');
+      localStorage.removeItem('token');
+      localStorage.removeItem('currentTab');
     }
   };
 
@@ -987,6 +1085,10 @@ Please return ONLY the updated template text.`;
       showToast('Please login to initiate custom scraper.', 'warning');
       return;
     }
+    if (scrapeRateLimit > 0) {
+      showToast(`Rate limit cooldown active. Please wait ${scrapeRateLimit}s before launching another job.`, 'warning');
+      return;
+    }
     const validQueries = scrapeQueries.map(q => q.trim()).filter(q => q);
     if (validQueries.length === 0 && !scrapeQuery.trim()) {
       showToast('Please enter at least one search query.', 'warning');
@@ -1016,6 +1118,12 @@ Please return ONLY the updated template text.`;
       const data = await res.json();
       if (res.ok) {
         showToast(`Scrape job launched for ${queriesToSend.length} query(s)!`, 'success');
+
+        // Start 2-minute rate limit timer
+        const until = Date.now() + 120000;
+        localStorage.setItem('scrapeRateLimitUntil', until.toString());
+        setScrapeRateLimit(120);
+
         setScrapeQueries(['']);
         setScrapeQuery('');
         setScrapeDiv('');
@@ -1033,6 +1141,171 @@ Please return ONLY the updated template text.`;
       showToast('Error connecting to backend scraper.', 'error');
     }
   };
+
+  // Dataset Requests Handlers
+  const loadMyDatasetRequests = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/requests/my-requests`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMyDatasetRequests(data);
+      }
+    } catch {
+      // silent
+    }
+  };
+
+  const loadAdminDatasetRequests = async () => {
+    if (!token || !user || (user.role !== 'admin' && user.role !== 'superadmin')) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/requests/admin/list`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAdminDatasetRequests(data);
+      }
+    } catch {
+      // silent
+    }
+  };
+
+  const handleSubmitDatasetRequest = async (e) => {
+    e.preventDefault();
+    if (!token) {
+      showToast('Please login to submit a dataset request.', 'warning');
+      return;
+    }
+
+    const allQueries = [...reqCategoryTags];
+    if (reqCategoryInput.trim() && !allQueries.includes(reqCategoryInput.trim())) {
+      allQueries.push(reqCategoryInput.trim());
+    }
+
+    if (allQueries.length === 0) {
+      showToast('Please add at least one query tag for required data.', 'warning');
+      return;
+    }
+    if (!reqPhone.trim()) {
+      showToast('Please enter your contact phone number.', 'warning');
+      return;
+    }
+
+    const categoryQueryString = allQueries.join(', ');
+    setSubmittingReq(true);
+    const finalDiv = reqDivision === 'Other' ? reqDivisionCustom : reqDivision;
+    const finalDist = reqDistrict === 'Other' ? reqDistrictCustom : reqDistrict;
+    const finalArea = reqArea === 'Other' ? reqAreaCustom : reqArea;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/requests/submit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          category_query: categoryQueryString,
+          division: finalDiv,
+          district: finalDist,
+          area: finalArea,
+          business_name: reqBusinessName.trim(),
+          phone: reqPhone.trim(),
+          additional_notes: reqNotes.trim()
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || 'Dataset request submitted successfully!', 'success');
+        setReqCategoryTags([]);
+        setReqCategoryInput('');
+        setReqDivision('');
+        setReqDistrict('');
+        setReqArea('');
+        setReqDivisionCustom('');
+        setReqDistrictCustom('');
+        setReqAreaCustom('');
+        setReqBusinessName('');
+        setReqPhone('');
+        setReqNotes('');
+        loadMyDatasetRequests();
+      } else {
+        showToast(data.detail || 'Failed to submit dataset request.', 'error');
+      }
+    } catch {
+      showToast('Error connecting to dataset request portal.', 'error');
+    } finally {
+      setSubmittingReq(false);
+    }
+  };
+
+  const openRequestActionModal = (req, targetStatus) => {
+    const loc = [req.division, req.district, req.area].filter(Boolean).join(', ') || 'Bangladesh';
+    const defaultMsg = targetStatus === 'fulfilled'
+      ? `Hello ${req.full_name || 'Valued Customer'},\n\nGreat news! Your dataset request for "${req.category_query}" in ${loc} has been successfully fulfilled!\n\nYou can now access and download this dataset directly from the Public Catalog on yourdatapoint.com.\n\nThank you for choosing MarketingOstad!`
+      : `Hello ${req.full_name || 'Valued Customer'},\n\nThank you for submitting your dataset request for "${req.category_query}". Unfortunately, we are unable to fulfill this request at this time because we could not extract enough lead data for this area.\n\nPlease feel free to contact support or submit a new request on yourdatapoint.com.`;
+
+    setRequestCustomMsg(defaultMsg);
+    setRequestNotifyChannel('email');
+    setRequestActionModal({ request: req, targetStatus });
+  };
+
+  const handleConfirmRequestAction = async () => {
+    if (!requestActionModal || !token) return;
+    const { request, targetStatus } = requestActionModal;
+
+    setUpdatingReqStatus(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/requests/admin/${request.id}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          status: targetStatus,
+          admin_notes: requestNotifyChannel !== 'none' ? `Notification sent via ${requestNotifyChannel}` : 'Status updated quietly',
+          notify_channel: requestNotifyChannel,
+          custom_message: requestCustomMsg
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || `Request #${request.id} status updated to ${targetStatus}!`, 'success');
+
+        // If fulfill, pre-fill scraper form parameters
+        if (targetStatus === 'fulfilled') {
+          const parsedQueries = request.category_query.split(',').map(q => q.trim()).filter(Boolean);
+          setScrapeQueries(parsedQueries.length > 0 ? parsedQueries : [request.category_query]);
+          setScrapeDiv(request.division || '');
+          setScrapeDist(request.district || '');
+          setScrapeArea(request.area || '');
+        }
+
+        setRequestActionModal(null);
+        loadAdminDatasetRequests();
+      } else {
+        showToast(data.detail || 'Failed to update request status.', 'error');
+      }
+    } catch {
+      showToast('Error updating dataset request.', 'error');
+    } finally {
+      setUpdatingReqStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentTab === 'scraper') {
+      loadMyDatasetRequests();
+      if (user && (user.role === 'admin' || user.role === 'superadmin')) {
+        loadAdminDatasetRequests();
+        loadJobs();
+      }
+    }
+  }, [currentTab, token, user]);
 
   // Poll Scraper logs
   const pollScrapeJob = (jobId) => {
@@ -1507,6 +1780,9 @@ Please return ONLY the updated template text.`;
       const data = await res.json();
       if (res.ok) {
         setPaymentConfig(data);
+        if (data.packages && Array.isArray(data.packages)) {
+          setPaymentPackages(data.packages);
+        }
         setAdminBkashNumber(data.bkash_number || '');
         setAdminBkashAccountType(data.bkash_account_type || '');
         setAdminPathaoNumber(data.pathao_number || '');
@@ -1572,9 +1848,9 @@ Please return ONLY the updated template text.`;
       return;
     }
 
-    let pkgName = 'Custom Credit Pack';
+    let pkgName = paymentConfig?.custom_package?.name || 'Custom Credit Pack';
     let creds = parseInt(customCredits) || 50;
-    let bdt = creds * 10;
+    let bdt = creds * (paymentConfig?.custom_package?.price_per_credit_bdt || 10);
 
     if (selectedPackage && selectedPackage !== 'custom') {
       pkgName = selectedPackage.name;
@@ -1792,6 +2068,8 @@ Please return ONLY the updated template text.`;
   const handleLogout = () => {
     setToken('');
     setUser(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('currentTab');
     setCurrentTab('home');
   };
 
@@ -2142,6 +2420,110 @@ Please return ONLY the updated template text.`;
     );
   };
 
+  const renderRequestActionModal = () => {
+    if (!requestActionModal) return null;
+    const { request, targetStatus } = requestActionModal;
+    const isFulfill = targetStatus === 'fulfilled';
+
+    return (
+      <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0, 0, 0, 0.85)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999999, padding: '20px' }}>
+        <div className="modal-content glowing-panel" style={{ maxWidth: '580px', width: '100%', borderRadius: '12px', padding: '24px', background: '#0a0e17', border: `1px solid ${isFulfill ? '#22c55e' : '#ef4444'}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: isFulfill ? '#22c55e' : '#ef4444' }}>
+              {isFulfill ? '🚀 Fulfill Request #' + request.id : '❌ Reject Request #' + request.id}
+            </h3>
+            <button className="btn btn-secondary btn-sm" onClick={() => setRequestActionModal(null)}>✕</button>
+          </div>
+
+          {/* User & Request Target Details */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.85rem', border: '1px solid var(--border-subtle)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '6px' }}>
+              <div><strong>User:</strong> {request.full_name}</div>
+              <div><strong>Email:</strong> {request.user_email}</div>
+              <div><strong>Phone / WA:</strong> <span style={{ color: '#06b6d4' }}>{request.phone}</span></div>
+              <div><strong>Business:</strong> {request.business_name || 'N/A'}</div>
+            </div>
+            <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
+              <strong>Category Queries:</strong> <span style={{ color: '#eab308' }}>{request.category_query}</span>
+              <br />
+              <small style={{ color: 'var(--text-muted)' }}>Location: {[request.division, request.district, request.area].filter(Boolean).join(', ') || 'Bangladesh'}</small>
+            </div>
+          </div>
+
+          {/* Select Notification Channel */}
+          <div className="form-group" style={{ marginBottom: '16px' }}>
+            <label style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Send size={15} style={{ color: '#06b6d4' }} /> Send Notification to Customer
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px', marginTop: '6px' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${requestNotifyChannel === 'email' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '8px 4px', fontSize: '0.75rem' }}
+                onClick={() => setRequestNotifyChannel('email')}
+              >
+                📧 Email Only
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${requestNotifyChannel === 'whatsapp' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '8px 4px', fontSize: '0.75rem' }}
+                onClick={() => setRequestNotifyChannel('whatsapp')}
+              >
+                💬 WhatsApp
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${requestNotifyChannel === 'both' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '8px 4px', fontSize: '0.75rem' }}
+                onClick={() => setRequestNotifyChannel('both')}
+              >
+                📬 Both
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${requestNotifyChannel === 'none' ? 'btn-danger' : 'btn-secondary'}`}
+                style={{ padding: '8px 4px', fontSize: '0.75rem' }}
+                onClick={() => setRequestNotifyChannel('none')}
+              >
+                🔕 None
+              </button>
+            </div>
+          </div>
+
+          {/* Custom Editable Message */}
+          {requestNotifyChannel !== 'none' && (
+            <div className="form-group" style={{ marginBottom: '20px' }}>
+              <label style={{ fontWeight: 'bold' }}>Custom Notification Message</label>
+              <textarea
+                className="form-control"
+                rows="5"
+                style={{ fontFamily: 'sans-serif', fontSize: '0.85rem', lineHeight: '1.5' }}
+                value={requestCustomMsg}
+                onChange={(e) => setRequestCustomMsg(e.target.value)}
+              ></textarea>
+              <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '4px', display: 'block' }}>
+                You can customize the notification reason or fulfillment message before sending.
+              </small>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button className="btn btn-secondary" onClick={() => setRequestActionModal(null)}>Cancel</button>
+            <button
+              className={`btn ${isFulfill ? 'btn-primary' : 'btn-danger'}`}
+              onClick={handleConfirmRequestAction}
+              disabled={updatingReqStatus}
+            >
+              {updatingReqStatus ? 'Processing...' : (isFulfill ? '🚀 Confirm & Fulfill Request' : '❌ Confirm Rejection')}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderFooter = () => (
     <footer className="app-footer">
       <div className="container">
@@ -2200,7 +2582,7 @@ Please return ONLY the updated template text.`;
     </footer>
   );
 
-  const isSidebarLayout = !!user;
+  const isSidebarLayout = !!user && currentTab !== 'home' && currentTab !== 'auth';
 
   return (
     <>
@@ -2220,6 +2602,9 @@ Please return ONLY the updated template text.`;
                   <div className="sidebar-section-title">Administration</div>
                   <div className={`sidebar-item ${currentTab === 'admin' && adminSubTab === 'datasets' ? 'active' : ''}`} onClick={() => { setCurrentTab('admin'); setAdminSubTab('datasets'); }}>
                     <Settings size={16} /> Admin Overview
+                  </div>
+                  <div className={`sidebar-item ${currentTab === 'admin' && adminSubTab === 'dataset_requests' ? 'active' : ''}`} onClick={() => { setCurrentTab('admin'); setAdminSubTab('dataset_requests'); loadAdminDatasetRequests(); }}>
+                    <Inbox size={16} style={{ color: '#eab308' }} /> Dataset Requests ({adminDatasetRequests.filter(r => r.status === 'pending').length})
                   </div>
                   <div className={`sidebar-item ${currentTab === 'admin' && adminSubTab === 'payments' ? 'active' : ''}`} onClick={() => { setCurrentTab('admin'); setAdminSubTab('payments'); loadAdminPaymentRequests(); }}>
                     <Coins size={16} style={{ color: '#eab308' }} /> Payment Verification ({adminPaymentRequests.filter(p => p.status === 'pending').length})
@@ -2241,7 +2626,7 @@ Please return ONLY the updated template text.`;
                 <Database size={16} /> Datasets Catalog
               </div>
               <div className={`sidebar-item ${currentTab === 'scraper' ? 'active' : ''}`} onClick={() => { setCurrentTab('scraper'); }}>
-                <Search size={16} /> Custom Scraper
+                <Search size={16} /> {user && (user.role === 'admin' || user.role === 'superadmin') ? 'Live Scraper Console' : 'Dataset Request Portal'}
               </div>
               <div className={`sidebar-item ${currentTab === 'marketing' ? 'active' : ''}`} onClick={() => { setCurrentTab('marketing'); }}>
                 <Send size={16} /> Marketing Portal
@@ -2574,137 +2959,135 @@ Please return ONLY the updated template text.`;
                 </h2>
               </div>
 
-              {/* Monthly Subscription Bundles */}
-              <div className="pricing-grid-3">
-                <div className="pricing-card-bdt">
-                  <div className="pricing-plan-title">{t.pricing.starterTitle}</div>
-                  <div className="pricing-price-bdt">
-                    {t.pricing.starterPrice} <span>{t.pricing.starterPerMonth}</span>
-                  </div>
-                  <ul className="pricing-features-list">
-                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.starterFeature1}</strong></li>
-                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.starterFeature2}</strong></li>
-                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.starterFeature3}</strong></li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.starterFeature4}</li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.starterFeature5}</li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.starterFeature6}</li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.starterFeature7}</li>
-                  </ul>
-                  <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setCurrentTab('auth')}>
-                    {t.pricing.btnStarter}
-                  </button>
-                </div>
+              {/* Dynamic Subscription & Credit Bundles from packages.json */}
+              {(() => {
+                const displayPackages = (paymentPackages && paymentPackages.length > 0) ? paymentPackages : (paymentConfig?.packages || []);
+                return (
+                  <>
+                    <div className="pricing-grid-3">
+                      {displayPackages.map((pkg) => (
+                        <div key={pkg.id} className={`pricing-card-bdt ${pkg.popular ? 'popular' : ''}`}>
+                          {pkg.popular ? (
+                            <span className="popular-ribbon">{pkg.badge || 'MOST POPULAR'}</span>
+                          ) : pkg.badge ? (
+                            <span style={{ position: 'absolute', top: '-12px', right: '16px', background: 'rgba(6, 182, 212, 0.2)', color: '#06b6d4', fontSize: '0.65rem', fontWeight: '900', padding: '3px 10px', borderRadius: '12px', border: '1px solid rgba(6, 182, 212, 0.4)' }}>
+                              {pkg.badge}
+                            </span>
+                          ) : null}
 
-                <div className="pricing-card-bdt popular">
-                  <span className="popular-ribbon">{t.pricing.growthBadge}</span>
-                  <div className="pricing-plan-title" style={{ color: 'var(--text-neon)' }}>{t.pricing.growthTitle}</div>
-                  <div className="pricing-price-bdt">
-                    {t.pricing.growthPrice} <span>{t.pricing.growthPerMonth}</span>
-                  </div>
-                  <ul className="pricing-features-list">
-                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.growthFeature1}</strong></li>
-                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.growthFeature2}</strong></li>
-                    <li><Check size={16} className="check-icon" /> <strong>{t.pricing.growthFeature3}</strong></li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.growthFeature4}</li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.growthFeature5}</li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.growthFeature6}</li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.growthFeature7}</li>
-                  </ul>
-                  <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => setCurrentTab('auth')}>
-                    {t.pricing.btnGrowth}
-                  </button>
-                </div>
+                          <div className="pricing-plan-title" style={{ color: pkg.popular ? 'var(--text-neon)' : '#fff' }}>{pkg.name}</div>
+                          <div className="pricing-price-bdt">
+                            ৳{pkg.price_bdt} <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>BDT / {pkg.credits} CR</span>
+                          </div>
 
-                <div className="pricing-card-bdt">
-                  <div className="pricing-plan-title">{t.pricing.enterpriseTitle}</div>
-                  <div className="pricing-price-bdt">
-                    {t.pricing.enterprisePrice}
-                  </div>
-                  <ul className="pricing-features-list">
-                    <li><Check size={16} className="check-icon" /> {t.pricing.enterpriseFeature1}</li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.enterpriseFeature2}</li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.enterpriseFeature3}</li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.enterpriseFeature4}</li>
-                    <li><Check size={16} className="check-icon" /> {t.pricing.enterpriseFeature5}</li>
-                  </ul>
-                  <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => document.getElementById('contact')?.scrollIntoView({ behavior: 'smooth' })}>
-                    {t.pricing.btnEnterprise}
-                  </button>
-                </div>
-              </div>
+                          {pkg.save_badge && (
+                            <div style={{ marginBottom: '12px' }}>
+                              <span className="animated-save-badge">{pkg.save_badge}</span>
+                            </div>
+                          )}
 
-              {/* Pay-as-you-go Credit Packs */}
-              <div style={{ textAlign: 'center', marginTop: '50px', marginBottom: '20px' }}>
-                <h3 style={{ fontSize: '1.4rem' }}>Pay-As-You-Go Credit Packs</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Need individual credits? Top up anytime in BDT.</p>
-              </div>
+                          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.4' }}>
+                            {pkg.description}
+                          </p>
 
-              <div className="credit-packs-grid">
-                <div className="credit-pack-card">
-                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#fff' }}>10 Credits</div>
-                  <div style={{ color: 'var(--text-neon)', fontSize: '1.4rem', fontWeight: 'bold', margin: '8px 0' }}>৳50 BDT</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>৳5.00 / Credit</div>
-                </div>
+                          {pkg.features && pkg.features.length > 0 && (
+                            <ul className="pricing-features-list">
+                              {pkg.features.map((feat, idx) => (
+                                <li key={idx}>
+                                  <Check size={16} className="check-icon" /> <span>{feat}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
 
-                <div className="credit-pack-card" style={{ borderColor: 'rgba(57, 255, 20, 0.3)' }}>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#fff' }}>20 Credits</div>
-                  <div style={{ color: 'var(--text-neon)', fontSize: '1.4rem', fontWeight: 'bold', margin: '8px 0' }}>৳90 BDT</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-neon)' }}>৳4.50 / Credit (10% SAVE)</div>
-                </div>
+                          <button
+                            className={`btn ${pkg.popular ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ width: '100%', marginTop: 'auto' }}
+                            onClick={() => {
+                              if (user) {
+                                setCurrentTab('upgrade');
+                                setSelectedPackage(pkg);
+                                setPaymentStep(1);
+                                setShowPaymentModal(true);
+                              } else {
+                                setCurrentTab('auth');
+                              }
+                            }}
+                          >
+                            {user ? `Upgrade to ${pkg.name}` : `Get Started with ${pkg.name}`}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
 
-                <div className="credit-pack-card">
-                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#fff' }}>50 Credits</div>
-                  <div style={{ color: 'var(--text-neon)', fontSize: '1.4rem', fontWeight: 'bold', margin: '8px 0' }}>৳200 BDT</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>৳4.00 / Credit (20% SAVE)</div>
-                </div>
+                    {/* Pay-as-you-go Credit Packs */}
+                    <div style={{ textAlign: 'center', marginTop: '50px', marginBottom: '20px' }}>
+                      <h3 style={{ fontSize: '1.4rem' }}>Pay-As-You-Go Credit Packs</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Need custom or volume credits? Top up anytime in BDT.</p>
+                    </div>
 
-                <div className="credit-pack-card" style={{ border: '1px solid var(--accent-blue)' }}>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#fff' }}>120 Credits</div>
-                  <div style={{ color: 'var(--accent-blue)', fontSize: '1.4rem', fontWeight: 'bold', margin: '8px 0' }}>৳400 BDT</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--accent-blue)' }}>৳3.33 / Credit (33% SAVE)</div>
-                </div>
-              </div>
+                    <div className="credit-packs-grid">
+                      {displayPackages.map((pkg) => (
+                        <div key={pkg.id} className="credit-pack-card" style={{ borderColor: pkg.popular ? 'rgba(57, 255, 20, 0.4)' : 'var(--border-subtle)' }}>
+                          <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#fff' }}>{pkg.credits} Credits</div>
+                          <div style={{ color: 'var(--text-neon)', fontSize: '1.4rem', fontWeight: 'bold', margin: '8px 0' }}>৳{pkg.price_bdt} BDT</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>৳{(pkg.price_bdt / pkg.credits).toFixed(2)} / Credit</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* Interactive BDT Credit Calculator */}
-              <div className="card glowing-panel" style={{ marginTop: '40px', padding: '30px' }}>
-                <h4 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Coins size={18} style={{ color: '#eab308' }} /> {t.pricing.calcTitle}
-                </h4>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
-                  {t.pricing.calcDesc}
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', alignItems: 'center' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>
-                      {t.pricing.calcSelectLabel} <strong style={{ color: 'var(--text-neon)', fontSize: '1.1rem' }}>{calcCredits} Credits</strong>
-                    </label>
-                    <input
-                      type="range"
-                      min="10"
-                      max="500"
-                      step="10"
-                      value={calcCredits}
-                      onChange={(e) => setCalcCredits(parseInt(e.target.value))}
-                      style={{ width: '100%', accentColor: 'var(--text-neon)' }}
-                    />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      <span>10 CR</span>
-                      <span>250 CR</span>
-                      <span>500 CR</span>
-                    </div>
-                  </div>
+              {(() => {
+                const customRate = paymentConfig?.custom_package?.price_per_credit_bdt || 7.5;
+                const minC = paymentConfig?.custom_package?.min_credits || 5;
+                const maxC = paymentConfig?.custom_package?.max_credits || 500;
+                const totalBDT = (calcCredits * customRate).toFixed(calcCredits * customRate % 1 === 0 ? 0 : 2);
 
-                  <div style={{ background: '#020306', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{t.pricing.calcTotalPayable}</div>
-                    <div style={{ fontSize: '2.2rem', fontWeight: '900', color: 'var(--text-neon)', margin: '4px 0' }}>
-                      ৳{calcCredits <= 15 ? calcCredits * 5 : calcCredits <= 40 ? Math.floor(calcCredits * 4.5) : Math.floor(calcCredits * 4)} BDT
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      {t.pricing.calcRateNote}
+                return (
+                  <div className="card glowing-panel" style={{ marginTop: '40px', padding: '30px' }}>
+                    <h4 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Coins size={18} style={{ color: '#eab308' }} /> {t.pricing.calcTitle}
+                    </h4>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
+                      {t.pricing.calcDesc}
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', alignItems: 'center' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                          {t.pricing.calcSelectLabel} <strong style={{ color: 'var(--text-neon)', fontSize: '1.1rem' }}>{calcCredits} Credits</strong>
+                        </label>
+                        <input
+                          type="range"
+                          min={minC}
+                          max={maxC}
+                          step="5"
+                          value={calcCredits}
+                          onChange={(e) => setCalcCredits(Math.max(minC, parseInt(e.target.value) || minC))}
+                          style={{ width: '100%', accentColor: 'var(--text-neon)' }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                          <span>{minC} CR</span>
+                          <span>{Math.round((maxC + minC) / 2)} CR</span>
+                          <span>{maxC} CR</span>
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#020306', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{t.pricing.calcTotalPayable}</div>
+                        <div style={{ fontSize: '2.2rem', fontWeight: '900', color: 'var(--text-neon)', margin: '4px 0' }}>
+                          ৳{totalBDT} BDT
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                          @ ৳{customRate} BDT / Credit (Min: {minC} Credits)
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
             </div>
 
             {/* CONTACT US SECTION */}
@@ -3104,15 +3487,46 @@ Please return ONLY the updated template text.`;
                           <div style={{ color: 'var(--text-neon)', fontSize: '0.85rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                             <CheckCircle2 size={16} /> Unlocked
                           </div>
-                          {user && user.role === 'admin' && (
-                            <a
-                              href={`${API_BASE}/api/datasets/${datasetDetail.dataset.id}/export?token=${token}`}
-                              download
-                              className="btn btn-primary btn-sm"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', textDecoration: 'none', background: '#0284c7', borderColor: '#0284c7' }}
-                            >
-                              <Download size={14} /> Export File (Admin Only)
-                            </a>
+                          {user && (user.role === 'admin' || user.role === 'superadmin') && (
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'bold' }}></span>
+                              <a
+                                href={`${API_BASE}/api/datasets/${datasetDetail.dataset.id}/export?format=excel&token=${token}`}
+                                download
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none', borderColor: '#22c55e', color: '#22c55e' }}
+                                title="Export as Excel (.xlsx)"
+                              >
+                                <FileSpreadsheet size={13} /> Excel
+                              </a>
+                              <a
+                                href={`${API_BASE}/api/datasets/${datasetDetail.dataset.id}/export?format=csv&token=${token}`}
+                                download
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none', borderColor: '#06b6d4', color: '#38bdf8' }}
+                                title="Export as CSV (.csv)"
+                              >
+                                <FileText size={13} /> CSV
+                              </a>
+                              <a
+                                href={`${API_BASE}/api/datasets/${datasetDetail.dataset.id}/export?format=json&token=${token}`}
+                                download
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none', borderColor: '#a855f7', color: '#c084fc' }}
+                                title="Export as JSON (.json)"
+                              >
+                                <Database size={13} /> JSON
+                              </a>
+                              <a
+                                href={`${API_BASE}/api/datasets/${datasetDetail.dataset.id}/export?format=pdf&token=${token}`}
+                                download
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: '0.75rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none', borderColor: '#ef4444', color: '#f87171' }}
+                                title="Export as PDF (.pdf)"
+                              >
+                                <Download size={13} /> PDF
+                              </a>
+                            </div>
                           )}
                         </div>
                       )}
@@ -3194,257 +3608,454 @@ Please return ONLY the updated template text.`;
           </div>
         )}
 
-        {/* ══ TAB: SCRAPER ══ */}
+        {/* ══ TAB: SCRAPER & DATASET REQUEST PORTAL ══ */}
         {currentTab === 'scraper' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
-            <div className="card glowing-panel">
-              <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}><Search size={18} style={{ color: '#06b6d4' }} /> Initialize Custom Maps Scraper</h3>
-              <form onSubmit={handleStartScrape}>
-                <div className="form-group">
-                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Search Queries *</span>
-                    <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 'normal' }}>Combined into 1 Excel</span>
-                  </label>
-                  {scrapeQueries.map((q, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+          <div>
+            {/* Header Banner */}
+            <div className="card glowing-panel" style={{ borderColor: '#06b6d4', marginBottom: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                <div>
+                  <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold', border: '1px solid rgba(6, 182, 212, 0.3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Search size={14} /> CUSTOM DATASET REQUEST PORTAL
+                  </span>
+                  <h2 style={{ color: '#fff', marginTop: '10px', marginBottom: '6px' }}>
+                    {user && (user.role === 'admin' || user.role === 'superadmin') ? 'Live Scraper & User Requests Console' : 'Request Custom Lead Datasets'}
+                  </h2>
+                  <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem' }}>
+                    {user && (user.role === 'admin' || user.role === 'superadmin')
+                      ? 'Launch direct server background scrapes or fulfill user dataset requests to drop fresh leads into the Public Catalog.'
+                      : 'To preserve platform server resources, submit your required lead dataset parameters below. Our data team will extract and drop the dataset directly into the Public Catalog.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* IF REGULAR USER: SHOW REQUEST FORM & MY REQUESTS */}
+            {(!user || (user.role !== 'admin' && user.role !== 'superadmin')) ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '28px' }}>
+                {/* Form Card */}
+                <div className="card glowing-panel">
+                  <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Send size={18} style={{ color: '#06b6d4' }} /> Submit Custom Dataset Request
+                  </h3>
+                  <form onSubmit={handleSubmitDatasetRequest}>
+                    <div className="form-group">
+                      <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Required Data / Search Query Tags *</span>
+                        <span style={{ fontSize: '0.75rem', color: '#06b6d4', fontWeight: 'bold' }}>
+                          {reqCategoryTags.length} Tag{reqCategoryTags.length !== 1 ? 's' : ''} Added
+                        </span>
+                      </label>
+
+                      {/* Interactive Tag Input Box */}
+                      <div
+                        style={{
+                          border: '1px solid var(--border-subtle)',
+                          background: 'rgba(15, 23, 42, 0.6)',
+                          padding: '6px 10px',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '6px',
+                          alignItems: 'center',
+                          minHeight: '44px',
+                          cursor: 'text'
+                        }}
+                        onClick={() => {
+                          const inputEl = document.getElementById('req-category-tag-input');
+                          if (inputEl) inputEl.focus();
+                        }}
+                      >
+                        {reqCategoryTags.map((tag, idx) => (
+                          <span
+                            key={idx}
+                            style={{
+                              background: 'rgba(6, 182, 212, 0.15)',
+                              border: '1px solid rgba(6, 182, 212, 0.4)',
+                              color: '#06b6d4',
+                              padding: '3px 10px',
+                              borderRadius: '16px',
+                              fontSize: '0.8rem',
+                              fontWeight: 'bold',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              boxShadow: '0 0 10px rgba(6, 182, 212, 0.2)'
+                            }}
+                          >
+                            {tag}
+                            <X
+                              size={13}
+                              style={{ cursor: 'pointer', color: '#ef4444' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setReqCategoryTags(reqCategoryTags.filter((_, i) => i !== idx));
+                              }}
+                            />
+                          </span>
+                        ))}
+
+                        <input
+                          id="req-category-tag-input"
+                          type="text"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            outline: 'none',
+                            color: '#fff',
+                            flex: '1',
+                            minWidth: '150px',
+                            fontSize: '0.85rem',
+                            padding: '4px'
+                          }}
+                          placeholder={reqCategoryTags.length === 0 ? "Type query & press comma (,) or Enter..." : "Add another query tag..."}
+                          value={reqCategoryInput}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val.includes(',')) {
+                              const parts = val.split(',');
+                              const newTags = [...reqCategoryTags];
+                              parts.forEach(p => {
+                                const trimmed = p.trim();
+                                if (trimmed && !newTags.includes(trimmed)) newTags.push(trimmed);
+                              });
+                              setReqCategoryTags(newTags);
+                              setReqCategoryInput('');
+                            } else {
+                              setReqCategoryInput(val);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const trimmed = reqCategoryInput.trim();
+                              if (trimmed && !reqCategoryTags.includes(trimmed)) {
+                                setReqCategoryTags([...reqCategoryTags, trimmed]);
+                                setReqCategoryInput('');
+                              }
+                            } else if (e.key === 'Backspace' && !reqCategoryInput && reqCategoryTags.length > 0) {
+                              setReqCategoryTags(reqCategoryTags.slice(0, -1));
+                            }
+                          }}
+                          onBlur={() => {
+                            const trimmed = reqCategoryInput.trim();
+                            if (trimmed && !reqCategoryTags.includes(trimmed)) {
+                              setReqCategoryTags([...reqCategoryTags, trimmed]);
+                              setReqCategoryInput('');
+                            }
+                          }}
+                        />
+                      </div>
+
+                      <small style={{ color: '#94a3b8', fontSize: '0.75rem', marginTop: '6px', display: 'block' }}>
+                        ⚡ Type any search category (e.g. <i>Pharmacy</i>) and press <b>comma (,)</b> or <b>Enter</b> to convert it into a tag badge!
+                      </small>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Division</label>
+                      <select className="form-control" value={reqDivision} onChange={(e) => { setReqDivision(e.target.value); setReqDistrict(''); setReqArea(''); }}>
+                        <option value="">-- Select Division --</option>
+                        {regionsConfig && Object.keys(regionsConfig).map((div, i) => (
+                          <option key={i} value={div}>{div}</option>
+                        ))}
+                        <option value="Other">Other / Custom...</option>
+                      </select>
+                      {reqDivision === 'Other' && (
+                        <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom division..." value={reqDivisionCustom} onChange={(e) => setReqDivisionCustom(e.target.value)} />
+                      )}
+                    </div>
+
+                    <div className="form-group">
+                      <label>District</label>
+                      <select className="form-control" value={reqDistrict} onChange={(e) => { setReqDistrict(e.target.value); setReqArea(''); }} disabled={!reqDivision && reqDivision !== 'Other'}>
+                        <option value="">-- Select District --</option>
+                        {regionsConfig && reqDivision && regionsConfig[reqDivision] && Object.keys(regionsConfig[reqDivision]).map((dist, i) => (
+                          <option key={i} value={dist}>{dist}</option>
+                        ))}
+                        <option value="Other">Other / Custom...</option>
+                      </select>
+                      {reqDistrict === 'Other' && (
+                        <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom district..." value={reqDistrictCustom} onChange={(e) => setReqDistrictCustom(e.target.value)} />
+                      )}
+                    </div>
+
+                    <div className="form-group">
+                      <label>Area / Sub-area</label>
+                      <select className="form-control" value={reqArea} onChange={(e) => setReqArea(e.target.value)} disabled={!reqDistrict && reqDistrict !== 'Other'}>
+                        <option value="">-- Select Area --</option>
+                        {regionsConfig && reqDivision && reqDistrict && regionsConfig[reqDivision]?.[reqDistrict] && regionsConfig[reqDivision][reqDistrict].map((area, i) => (
+                          <option key={i} value={area}>{area}</option>
+                        ))}
+                        <option value="Other">Other / Custom...</option>
+                      </select>
+                      {reqArea === 'Other' && (
+                        <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom area..." value={reqAreaCustom} onChange={(e) => setReqAreaCustom(e.target.value)} />
+                      )}
+                    </div>
+
+                    <div className="form-group">
+                      <label>Your Business Name / Industry</label>
                       <input
                         type="text"
                         className="form-control"
-                        placeholder={`Query #${idx + 1} (e.g. Pharmacy Mirpur Dhaka)`}
-                        value={q}
-                        onChange={(e) => {
-                          const newQ = [...scrapeQueries];
-                          newQ[idx] = e.target.value;
-                          setScrapeQueries(newQ);
-                        }}
-                        required={idx === 0 && !scrapeQuery}
+                        placeholder="e.g. Ostad Marketing Agency / Software Solutions"
+                        value={reqBusinessName}
+                        onChange={(e) => setReqBusinessName(e.target.value)}
                       />
-                      {idx === scrapeQueries.length - 1 ? (
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ padding: '0 14px', fontWeight: 'bold', fontSize: '1.2rem', minWidth: '42px' }}
-                          onClick={() => setScrapeQueries([...scrapeQueries, ''])}
-                          title="Add another search query field"
-                        >
-                          +
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-danger"
-                          style={{ padding: '0 14px', fontWeight: 'bold', fontSize: '1.2rem', minWidth: '42px' }}
-                          onClick={() => {
-                            const newQ = scrapeQueries.filter((_, i) => i !== idx);
-                            setScrapeQueries(newQ.length ? newQ : ['']);
-                          }}
-                          title="Remove query field"
-                        >
-                          ×
-                        </button>
-                      )}
                     </div>
-                  ))}
-                </div>
 
-                {/* Division Select Dropdown */}
-                <div className="form-group">
-                  <label>Division</label>
-                  <select className="form-control" value={scrapeDiv} onChange={(e) => { setScrapeDiv(e.target.value); setScrapeDist(''); setScrapeArea(''); }}>
-                    <option value="">-- Select Division --</option>
-                    {regionsConfig && Object.keys(regionsConfig).map((div, i) => (
-                      <option key={i} value={div}>{div}</option>
-                    ))}
-                    <option value="Other">Other / Custom (Type manually)...</option>
-                  </select>
-                  {scrapeDiv === 'Other' && (
-                    <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom division name..." value={scrapeDivCustom} onChange={(e) => setScrapeDivCustom(e.target.value)} required />
-                  )}
-                </div>
-
-                {/* District Select Dropdown */}
-                <div className="form-group">
-                  <label>District</label>
-                  <select className="form-control" value={scrapeDist} onChange={(e) => { setScrapeDist(e.target.value); setScrapeArea(''); }} disabled={!scrapeDiv && scrapeDiv !== 'Other'}>
-                    <option value="">-- Select District --</option>
-                    {regionsConfig && scrapeDiv && regionsConfig[scrapeDiv] && Object.keys(regionsConfig[scrapeDiv]).map((dist, i) => (
-                      <option key={i} value={dist}>{dist}</option>
-                    ))}
-                    <option value="Other">Other / Custom (Type manually)...</option>
-                  </select>
-                  {scrapeDist === 'Other' && (
-                    <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom district name..." value={scrapeDistCustom} onChange={(e) => setScrapeDistCustom(e.target.value)} required />
-                  )}
-                </div>
-
-                {/* Area Select Dropdown */}
-                <div className="form-group">
-                  <label>Area / Sub-area</label>
-                  <select className="form-control" value={scrapeArea} onChange={(e) => setScrapeArea(e.target.value)} disabled={!scrapeDist && scrapeDist !== 'Other'}>
-                    <option value="">-- Select Area / Zone --</option>
-                    {regionsConfig && scrapeDiv && scrapeDist && regionsConfig[scrapeDiv]?.[scrapeDist] && regionsConfig[scrapeDiv][scrapeDist].map((area, i) => (
-                      <option key={i} value={area}>{area}</option>
-                    ))}
-                    <option value="Other">Other / Custom (Type manually)...</option>
-                  </select>
-                  {scrapeArea === 'Other' && (
-                    <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom area or sub-area name..." value={scrapeAreaCustom} onChange={(e) => setScrapeAreaCustom(e.target.value)} required />
-                  )}
-                </div>
-
-
-
-                <button className="btn btn-primary" style={{ width: '100%', marginTop: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }} type="submit">
-                  <Play size={15} /> Launch Scraper (Costs {20 * (scrapeQueries.filter(q => q.trim()).length || 1)} Credits)
-                </button>
-              </form>
-            </div>
-
-            {/* Live scraper logs view */}
-            <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Bot size={18} style={{ color: '#a855f7' }} /> Background Scraper Jobs</h3>
-                <label className="toggle-switch" title="When ON, scraping opens a visible Chrome browser window for live debugging. Independent of active jobs.">
-                  <input type="checkbox" checked={showLiveDebug} onChange={(e) => setShowLiveDebug(e.target.checked)} />
-                  <span className="toggle-track"></span>
-                  <Search size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Show Live Map (Debug Tool)
-                </label>
-              </div>
-
-              {activeJobId && (
-                <div style={{ marginBottom: '20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <div style={{ display: 'flex', alignContent: 'center', gap: '10px' }}>
-                      <span className="led-status running"></span>
-                      <span style={{ fontSize: '0.85rem' }}>Active Job ID: #{activeJobId}</span>
+                    <div className="form-group">
+                      <label>Contact Mobile / WhatsApp Number *</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="+8801700000000"
+                        value={reqPhone}
+                        onChange={(e) => setReqPhone(e.target.value)}
+                        required
+                      />
                     </div>
-                    <label className="toggle-switch" title="When ON, logs automatically scroll to the newest entry.">
-                      <input type="checkbox" checked={autoScrollScraper} onChange={(e) => setAutoScrollScraper(e.target.checked)} />
-                      <span className="toggle-track"></span>
-                      <span style={{ fontSize: '0.75rem' }}>Auto-scroll Logs</span>
-                    </label>
+
+                    <div className="form-group">
+                      <label>Additional Notes / Specific Requirements</label>
+                      <textarea
+                        className="form-control"
+                        rows="2"
+                        placeholder="Any extra info (e.g. need 500+ verified mobile contacts)..."
+                        value={reqNotes}
+                        onChange={(e) => setReqNotes(e.target.value)}
+                      ></textarea>
+                    </div>
+
+                    <button className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }} type="submit" disabled={submittingReq}>
+                      {submittingReq ? 'Submitting...' : '🚀 Submit Dataset Request'}
+                    </button>
+                  </form>
+                </div>
+
+                {/* My Requests Card */}
+                <div className="card">
+                  <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <History size={18} style={{ color: '#a855f7' }} /> My Submitted Dataset Requests
+                  </h3>
+                  <div style={{ maxHeight: '550px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Req ID</th>
+                          <th>Category & Location</th>
+                          <th>Business & Phone</th>
+                          <th>Status</th>
+                          <th>Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {myDatasetRequests.map(r => (
+                          <tr key={r.id}>
+                            <td><strong>#{r.id}</strong></td>
+                            <td>
+                              <div><strong>{r.category_query}</strong></div>
+                              <small style={{ color: 'var(--text-muted)' }}>{[r.division, r.district, r.area].filter(Boolean).join(', ') || 'Bangladesh'}</small>
+                            </td>
+                            <td>
+                              <div>{r.business_name || '—'}</div>
+                              <small style={{ color: '#06b6d4', fontFamily: 'monospace' }}>{r.phone}</small>
+                            </td>
+                            <td>
+                              <span style={{
+                                padding: '3px 8px',
+                                borderRadius: '12px',
+                                fontSize: '0.75rem',
+                                fontWeight: 'bold',
+                                background: r.status === 'fulfilled' ? 'rgba(34, 197, 94, 0.15)' : r.status === 'rejected' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                                color: r.status === 'fulfilled' ? '#22c55e' : r.status === 'rejected' ? '#ef4444' : '#eab308'
+                              }}>
+                                {r.status === 'fulfilled' ? '✓ Dropped in Catalog' : r.status === 'rejected' ? 'Rejected' : 'Pending'}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                              {new Date(r.created_at).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        ))}
+                        {myDatasetRequests.length === 0 && (
+                          <tr>
+                            <td colSpan="5" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                              No dataset requests submitted yet. Use the portal form on the left to request custom lead datasets!
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
-
-                  {/* Embedded Live Debug View (Screenshot Stream) */}
-                  {showLiveDebug && (
-                    <div className="map-viewer" style={{ marginBottom: '12px' }}>
-                      {liveMapImage ? (
-                        <>
-                          <img src={liveMapImage} alt="Live debug view" style={{ width: '100%', borderRadius: '4px', border: '1px solid var(--border-subtle)' }} />
-                          <div className="map-viewer-overlay">
-                            <div className="map-viewer-badge">
-                              <span className="led-status running" style={{ width: '6px', height: '6px' }}></span>
-                              LIVE DEBUG VIEW
-                            </div>
+                </div>
+              </div>
+            ) : (
+              /* IF ADMIN / SUPERADMIN: SHOW LIVE SCRAPER + ADMIN REQUEST MANAGER */
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px' }}>
+                  {/* Left: Direct Admin Scraper */}
+                  <div className="card glowing-panel">
+                    <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Search size={18} style={{ color: '#06b6d4' }} /> Initialize Admin Maps Scraper
+                    </h3>
+                    <form onSubmit={handleStartScrape}>
+                      <div className="form-group">
+                        <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>Search Queries *</span>
+                          <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 'normal' }}>Combined into 1 Private Dataset</span>
+                        </label>
+                        {scrapeQueries.map((q, idx) => (
+                          <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder={`Query #${idx + 1} (e.g. Pharmacy Mirpur Dhaka)`}
+                              value={q}
+                              onChange={(e) => {
+                                const newQ = [...scrapeQueries];
+                                newQ[idx] = e.target.value;
+                                setScrapeQueries(newQ);
+                              }}
+                              required={idx === 0 && !scrapeQuery}
+                            />
+                            {idx === scrapeQueries.length - 1 ? (
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ padding: '0 14px', fontWeight: 'bold', fontSize: '1.2rem', minWidth: '42px' }}
+                                onClick={() => setScrapeQueries([...scrapeQueries, ''])}
+                                title="Add query"
+                              >+</button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn-danger"
+                                style={{ padding: '0 14px', fontWeight: 'bold', fontSize: '1.2rem', minWidth: '42px' }}
+                                onClick={() => {
+                                  const newQ = scrapeQueries.filter((_, i) => i !== idx);
+                                  setScrapeQueries(newQ.length ? newQ : ['']);
+                                }}
+                                title="Remove query"
+                              >×</button>
+                            )}
                           </div>
-                        </>
-                      ) : (
-                        <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                          Waiting for live debug tool stream... (Chrome is running headlessly in background)
-                        </div>
-                      )}
-                    </div>
-                  )}
+                        ))}
+                      </div>
 
-                  <div className="terminal-box" ref={scraperTerminalRef}>
-                    {activeJobLogs.map((log, index) => (
-                      <div key={index} className="terminal-line">{log}</div>
-                    ))}
+                      <div className="form-group">
+                        <label>Division</label>
+                        <select className="form-control" value={scrapeDiv} onChange={(e) => { setScrapeDiv(e.target.value); setScrapeDist(''); setScrapeArea(''); }}>
+                          <option value="">-- Select Division --</option>
+                          {regionsConfig && Object.keys(regionsConfig).map((div, i) => (
+                            <option key={i} value={div}>{div}</option>
+                          ))}
+                          <option value="Other">Other / Custom...</option>
+                        </select>
+                      </div>
+
+                      <div className="form-group">
+                        <label>District</label>
+                        <select className="form-control" value={scrapeDist} onChange={(e) => { setScrapeDist(e.target.value); setScrapeArea(''); }} disabled={!scrapeDiv && scrapeDiv !== 'Other'}>
+                          <option value="">-- Select District --</option>
+                          {regionsConfig && scrapeDiv && regionsConfig[scrapeDiv] && Object.keys(regionsConfig[scrapeDiv]).map((dist, i) => (
+                            <option key={i} value={dist}>{dist}</option>
+                          ))}
+                          <option value="Other">Other / Custom...</option>
+                        </select>
+                      </div>
+
+                      <div className="form-group">
+                        <label>Area / Sub-area</label>
+                        <select className="form-control" value={scrapeArea} onChange={(e) => setScrapeArea(e.target.value)} disabled={!scrapeDist && scrapeDist !== 'Other'}>
+                          <option value="">-- Select Area --</option>
+                          {regionsConfig && scrapeDiv && scrapeDist && regionsConfig[scrapeDiv]?.[scrapeDist] && regionsConfig[scrapeDiv][scrapeDist].map((area, i) => (
+                            <option key={i} value={area}>{area}</option>
+                          ))}
+                          <option value="Other">Other / Custom...</option>
+                        </select>
+                      </div>
+
+                      {scrapeRateLimit > 0 ? (
+                        <button type="button" className="btn btn-secondary" style={{ width: '100%', marginTop: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'not-allowed', background: 'rgba(239, 68, 68, 0.12)', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444', fontWeight: 'bold' }} disabled>
+                          <Clock size={16} style={{ color: '#ef4444' }} /> Rate Limit Cooldown ({Math.floor(scrapeRateLimit / 60)}:{scrapeRateLimit % 60 < 10 ? '0' : ''}{scrapeRateLimit % 60} Remaining)
+                        </button>
+                      ) : (
+                        <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                          <Play size={15} /> Launch Admin Scraper
+                        </button>
+                      )}
+                    </form>
+                  </div>
+
+                  {/* Right: Live Scraper Terminal & Debug Stream */}
+                  <div className="card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Bot size={18} style={{ color: '#a855f7' }} /> Background Scraper Terminal</h3>
+                      <label className="toggle-switch" title="Show Live Map">
+                        <input type="checkbox" checked={showLiveDebug} onChange={(e) => setShowLiveDebug(e.target.checked)} />
+                        <span className="toggle-track"></span>
+                        <Search size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Debug View
+                      </label>
+                    </div>
+
+                    {activeJobId && (
+                      <div style={{ marginBottom: '20px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                          <span className="led-status running"></span>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Active Job ID: #{activeJobId}</span>
+                        </div>
+
+                        {showLiveDebug && (
+                          <div className="map-viewer" style={{ marginBottom: '12px' }}>
+                            {liveMapImage ? (
+                              <img src={liveMapImage} alt="Live debug view" style={{ width: '100%', borderRadius: '4px' }} />
+                            ) : (
+                              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                Waiting for live debug tool stream...
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="terminal-box" ref={scraperTerminalRef} style={{ position: 'relative' }}>
+                          <div style={{ position: 'sticky', top: 0, zIndex: 5, background: '#0a0e17', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '-12px -12px 10px -12px', borderRadius: '4px 4px 0 0' }}>
+                            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'monospace', fontWeight: 'bold' }}>⚡ Execution Logs</span>
+                            <label style={{ fontSize: '0.75rem', color: '#cbd5e1', display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', margin: 0 }}>
+                              <input type="checkbox" checked={autoScrollScraper} onChange={(e) => setAutoScrollScraper(e.target.checked)} style={{ cursor: 'pointer', accentColor: '#06b6d4' }} />
+                              Auto-scroll Logs
+                            </label>
+                          </div>
+                          {activeJobLogs.map((log, index) => (
+                            <div key={index} className="terminal-line">{log}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <h4 style={{ margin: '20px 0 10px 0' }}>Job History & Scraped Data</h4>
+                    <div style={{ maxHeight: '220px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '4px' }}>
+                      {scraperJobs.map(job => (
+                        <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', alignItems: 'center', background: 'rgba(255,255,255,0.02)', margin: '4px 0', borderRadius: '6px' }}>
+                          <div>
+                            <div style={{ fontSize: '0.85rem' }}><strong>{job.query}</strong></div>
+                            <small style={{ color: 'var(--text-muted)' }}>Status: {job.status} | {job.result_count || 0} rows</small>
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            {job.status === 'done' && (
+                              <button className="btn btn-primary btn-sm" title="Promote to Public Catalog" onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}>
+                                <Database size={13} /> Drop to Catalog
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              )}
-
-              <h4 style={{ margin: '20px 0 10px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Job History & Scraped Data</span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Scraped data is kept private to your account until promoted by an admin</span>
-              </h4>
-              <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '4px' }}>
-                {scraperJobs.map(job => (
-                  <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', alignItems: 'center', background: 'rgba(255,255,255,0.02)', margin: '4px 0', borderRadius: '6px' }}>
-                    <div>
-                      <div style={{ fontSize: '0.85rem' }}><strong>Query: {job.query}</strong></div>
-                      <small style={{ color: 'var(--text-muted)', display: 'inline-flex', gap: '8px', marginTop: '2px' }}>
-                        <span>Status: <strong style={{ color: job.status === 'done' ? '#22c55e' : '#eab308' }}>{job.status}</strong></span> |
-                        <span>Scraped Leads: <strong>{job.result_count || 0} rows</strong></span>
-                      </small>
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      {job.status === 'running' ? (
-                        <button className="btn btn-secondary btn-sm" onClick={() => pollScrapeJob(job.id)}>Logs</button>
-                      ) : (
-                        <>
-                          {/* 1. VIEW BUTTON: View / Add Private Catalogue */}
-                          {job.status === 'done' && (
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                              title="View Dataset / Add Private Catalogue"
-                              onClick={() => {
-                                openDatasetDetails(`job_${job.id}`, 1);
-                                setCurrentTab('catalog');
-                                setCatalogTab('private');
-                              }}
-                            >
-                              <Eye size={13} />
-                            </button>
-                          )}
-
-                          {/* 2. USE BUTTON: Use directly in WhatsApp Campaign */}
-                          {job.status === 'done' && (
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(6, 182, 212, 0.12)', borderColor: '#06b6d4', color: '#06b6d4' }}
-                              title="Use directly in WhatsApp Campaign"
-                              onClick={() => {
-                                setWaRecipientGroup(`job_${job.id}`);
-                                setEmailRecipientGroup(`job_${job.id}`);
-                                loadRecipientContacts(`job_${job.id}`);
-                                setCurrentTab('marketing');
-                                setMarketingSubTab('whatsapp');
-                                showToast(`Loaded "${job.query}" leads for WhatsApp campaign!`, 'success');
-                              }}
-                            >
-                              <MessageSquare size={13} />
-                            </button>
-                          )}
-
-                          {/* 3. PROMOTE BUTTON (Admin optional) */}
-                          {job.status === 'done' && (user?.role === 'admin' || user?.role === 'superadmin') && (
-                            <button
-                              type="button"
-                              className="btn btn-primary btn-sm"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                              title="Promote to Catalog"
-                              onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}
-                            >
-                              <Database size={13} />
-                            </button>
-                          )}
-
-                          {/* 4. DELETE BUTTON */}
-                          <button
-                            type="button"
-                            className="btn btn-danger btn-sm"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(239, 68, 68, 0.15)', borderColor: '#ef4444', color: '#ef4444' }}
-                            title="Delete Scrape Job"
-                            onClick={() => handleDeleteJob(job.id, job.query)}
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {scraperJobs.length === 0 && (
-                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    No scraping jobs executed yet. Launch a query above to gather fresh leads.
-                  </div>
-                )}
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -4295,19 +4906,94 @@ Please return ONLY the updated template text.`;
         {/* ══ TAB: ADMIN PANEL ══ */}
         {currentTab === 'admin' && (
           <div>
-            <div className="tabs">
-              <button className={`tab-btn ${adminSubTab === 'datasets' ? 'active' : ''}`} onClick={() => setAdminSubTab('datasets')}>📁 Manage Datasets</button>
-              <button className={`tab-btn ${adminSubTab === 'payments' ? 'active' : ''}`} onClick={() => { setAdminSubTab('payments'); loadAdminPaymentRequests(); }}>
-                💳 bKash & Pathao Payments ({adminPaymentRequests.filter(p => p.status === 'pending').length})
-              </button>
-              <button className={`tab-btn ${adminSubTab === 'gateway' ? 'active' : ''}`} onClick={() => setAdminSubTab('gateway')}>
-                ⚙️ Payment Gateway & QR Settings
-              </button>
-              <button className={`tab-btn ${adminSubTab === 'requests' ? 'active' : ''}`} onClick={() => { setAdminSubTab('requests'); loadAdminPromotionRequests(); }}>
-                📥 Promotion Requests ({adminPromotionRequests.length})
-              </button>
-              <button className={`tab-btn ${adminSubTab === 'users' ? 'active' : ''}`} onClick={() => { setAdminSubTab('users'); loadAdminUsers(); }}>👥 Customers & Credits</button>
-            </div>
+
+            {/* Pane: Dataset Requests Manager */}
+            {adminSubTab === 'dataset_requests' && (
+              <div className="card glowing-panel">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Inbox size={20} style={{ color: '#eab308' }} /> User Dataset Requests Console ({adminDatasetRequests.filter(r => r.status === 'pending').length} Pending)
+                  </h3>
+                  <button className="btn btn-secondary btn-sm" onClick={loadAdminDatasetRequests}>
+                    <RefreshCw size={13} /> Refresh Requests
+                  </button>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Req ID</th>
+                        <th>User / Email</th>
+                        <th>Phone</th>
+                        <th>Business Name</th>
+                        <th>Category / Location</th>
+                        <th>Notes</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminDatasetRequests.map(req => (
+                        <tr key={req.id}>
+                          <td><strong>#{req.id}</strong></td>
+                          <td>
+                            <div><strong>{req.full_name}</strong></div>
+                            <small style={{ color: 'var(--text-muted)' }}>{req.user_email}</small>
+                          </td>
+                          <td className="digital-text" style={{ color: '#06b6d4' }}>{req.phone}</td>
+                          <td>{req.business_name || '—'}</td>
+                          <td>
+                            <div><strong>{req.category_query}</strong></div>
+                            <small style={{ color: 'var(--text-muted)' }}>{[req.division, req.district, req.area].filter(Boolean).join(', ') || 'Bangladesh'}</small>
+                          </td>
+                          <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: '200px' }}>{req.additional_notes || '—'}</td>
+                          <td>
+                            <span style={{
+                              padding: '3px 8px',
+                              borderRadius: '12px',
+                              fontSize: '0.75rem',
+                              fontWeight: 'bold',
+                              background: req.status === 'fulfilled' ? 'rgba(34, 197, 94, 0.15)' : req.status === 'rejected' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                              color: req.status === 'fulfilled' ? '#22c55e' : req.status === 'rejected' ? '#ef4444' : '#eab308'
+                            }}>
+                              {req.status === 'fulfilled' ? 'Fulfilled' : req.status === 'rejected' ? 'Rejected' : 'Pending'}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button
+                                className="btn btn-primary btn-sm"
+                                style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                                title="Fulfill request and send notification"
+                                onClick={() => openRequestActionModal(req, 'fulfilled')}
+                              >
+                                🚀 Fulfill
+                              </button>
+                              <button
+                                className="btn btn-danger btn-sm"
+                                style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                                title="Reject request and send notification"
+                                onClick={() => openRequestActionModal(req, 'rejected')}
+                              >
+                                ❌ Reject
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {adminDatasetRequests.length === 0 && (
+                        <tr>
+                          <td colSpan="8" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                            No dataset requests submitted by users yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Pane: Payment Approvals */}
             {adminSubTab === 'payments' && (
@@ -4661,7 +5347,7 @@ Please return ONLY the updated template text.`;
                     </div>
 
                     <div className="form-group">
-                      <label>Excel File *</label>
+                      <label>Upload Dataset File *</label>
                       <input type="file" className="form-control" onChange={(e) => setUploadFile(e.target.files[0])} required />
                     </div>
                     <button className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }} type="submit">Upload Dataset</button>
@@ -4686,7 +5372,7 @@ Please return ONLY the updated template text.`;
                     Scale Your Lead Scraper & Outreach Campaigns
                   </h2>
                   <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem' }}>
-                    Purchase credit packages to unlock full dataset phone numbers, export Excel leads, and launch automated WhatsApp/Email campaigns.
+                    Purchase credit packages to unlock full dataset phone numbers, build private lead catalogues, and launch automated WhatsApp/Email campaigns.
                   </p>
                 </div>
 
@@ -4729,16 +5415,39 @@ Please return ONLY the updated template text.`;
                   )}
 
                   <div>
-                    <h4 style={{ color: '#fff', marginBottom: '8px' }}>{pkg.name}</h4>
+                    <h4 style={{ color: '#fff', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>{pkg.name}</span>
+                      {pkg.badge && !pkg.popular && (
+                        <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', fontSize: '0.65rem', padding: '2px 8px', borderRadius: '10px', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
+                          {pkg.badge}
+                        </span>
+                      )}
+                    </h4>
                     <div style={{ fontSize: '2rem', fontWeight: '900', color: '#eab308', margin: '10px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <Coins size={24} /> {pkg.credits} <span style={{ fontSize: '1rem', color: 'var(--text-muted)' }}>Credits</span>
                     </div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fff', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fff', marginBottom: '6px' }}>
                       ৳{pkg.price_bdt} <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>BDT</span>
                     </div>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '20px', lineHeight: '1.5' }}>
+                    {pkg.save_badge && (
+                      <div style={{ marginBottom: '12px' }}>
+                        <span className="animated-save-badge">{pkg.save_badge}</span>
+                      </div>
+                    )}
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.5' }}>
                       {pkg.description}
                     </p>
+
+                    {pkg.features && pkg.features.length > 0 && (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {pkg.features.map((feat, idx) => (
+                          <li key={idx} style={{ fontSize: '0.8rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <CheckCircle2 size={14} style={{ color: '#22c55e', flexShrink: 0 }} />
+                            <span>{feat}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
 
                   <button
@@ -4756,39 +5465,112 @@ Please return ONLY the updated template text.`;
               ))}
 
               {/* Custom Upgrade Package Card */}
-              <div className="card" style={{ border: '1px solid var(--accent-blue)', background: 'rgba(6, 182, 212, 0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '24px' }}>
-                <div>
-                  <h4 style={{ color: '#fff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}><Settings size={18} /> Custom Upgrade</h4>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px' }}>Enter the exact credit amount your team requires:</p>
+              {(() => {
+                const customCfg = paymentConfig?.custom_package || {};
+                const customRate = customCfg.price_per_credit_bdt || 10;
+                const minC = customCfg.min_credits || 10;
+                const maxC = customCfg.max_credits || 5000;
+                const stepC = customCfg.step || 10;
+                const customName = customCfg.name || 'Custom Upgrade';
+                const customDesc = customCfg.description || 'Select the exact credit amount your team requires:';
+                const customFeats = customCfg.features || [];
 
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <input
-                      type="number"
-                      className="form-control"
-                      value={customCredits}
-                      onChange={(e) => setCustomCredits(e.target.value)}
-                      min="10"
-                      placeholder="Enter credits..."
-                    />
+                return (
+                  <div className="card" style={{ border: '1px solid var(--accent-blue)', background: 'rgba(6, 182, 212, 0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '24px' }}>
+                    <div>
+                      <h4 style={{ color: '#fff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}><Settings size={18} /> {customName}</h4>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '12px' }}>{customDesc}</p>
+
+                      <div className="form-group" style={{ marginBottom: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <label style={{ margin: 0, fontWeight: 'bold', fontSize: '0.85rem' }}>Select Custom Credits:</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <input
+                              type="number"
+                              className="form-control"
+                              style={{ width: '90px', padding: '4px 8px', textAlign: 'center', fontWeight: 'bold', color: '#06b6d4', fontSize: '0.9rem' }}
+                              value={customCredits}
+                              onChange={(e) => setCustomCredits(Math.max(minC, parseInt(e.target.value) || minC))}
+                              min={minC}
+                              max={maxC * 2}
+                            />
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>CR</span>
+                          </div>
+                        </div>
+
+                        {/* Interactive Range Seekbar */}
+                        <input
+                          type="range"
+                          min={minC}
+                          max={maxC}
+                          step={stepC}
+                          value={customCredits}
+                          onChange={(e) => setCustomCredits(parseInt(e.target.value))}
+                          style={{
+                            width: '100%',
+                            height: '8px',
+                            borderRadius: '4px',
+                            background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${Math.min(100, (customCredits / maxC) * 100)}%, rgba(255,255,255,0.1) ${Math.min(100, (customCredits / maxC) * 100)}%, rgba(255,255,255,0.1) 100%)`,
+                            outline: 'none',
+                            cursor: 'pointer',
+                            margin: '12px 0 8px 0',
+                            accentColor: '#06b6d4'
+                          }}
+                        />
+
+                        {/* Quick Seekbar Presets */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '4px', marginTop: '6px' }}>
+                          {[100, 500, 1000, 2500, 5000].map((val) => (
+                            <button
+                              key={val}
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              style={{
+                                padding: '2px 6px',
+                                fontSize: '0.7rem',
+                                background: parseInt(customCredits) === val ? 'rgba(6, 182, 212, 0.25)' : 'transparent',
+                                borderColor: parseInt(customCredits) === val ? '#06b6d4' : 'var(--border-subtle)',
+                                color: parseInt(customCredits) === val ? '#06b6d4' : 'var(--text-muted)'
+                              }}
+                              onClick={() => setCustomCredits(val)}
+                            >
+                              {val >= 1000 ? `${val / 1000}k` : val}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#06b6d4', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>৳{(parseInt(customCredits) || 0) * customRate} BDT</span>
+                        <small style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>@ ৳{customRate} BDT / Credit</small>
+                      </div>
+
+                      {customFeats && customFeats.length > 0 && (
+                        <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px 0', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {customFeats.map((feat, idx) => (
+                            <li key={idx} style={{ fontSize: '0.8rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <CheckCircle2 size={14} style={{ color: '#06b6d4', flexShrink: 0 }} />
+                              <span>{feat}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    <button
+                      className="btn btn-secondary"
+                      style={{ width: '100%', padding: '12px', borderColor: '#06b6d4', color: '#06b6d4', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                      onClick={() => {
+                        setSelectedPackage('custom');
+                        setPaymentStep(1);
+                        setShowPaymentModal(true);
+                      }}
+                    >
+                      <Zap size={16} /> Purchase Custom Credits
+                    </button>
                   </div>
-
-                  <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#06b6d4', marginBottom: '16px' }}>
-                    ৳{(parseInt(customCredits) || 0) * 10} BDT
-                  </div>
-                </div>
-
-                <button
-                  className="btn btn-secondary"
-                  style={{ width: '100%', padding: '12px', borderColor: '#06b6d4', color: '#06b6d4', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                  onClick={() => {
-                    setSelectedPackage('custom');
-                    setPaymentStep(1);
-                    setShowPaymentModal(true);
-                  }}
-                >
-                  <Zap size={16} /> Purchase Custom Credits
-                </button>
-              </div>
+                );
+              })()}
             </div>
 
             {/* Package Benefits & Instructions */}
@@ -4799,7 +5581,7 @@ Please return ONLY the updated template text.`;
                 </h4>
                 <ul style={{ paddingLeft: '0', listStyle: 'none', color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: '2' }}>
                   <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Unlock full leads catalog with real phone numbers</li>
-                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Export scraped leads directly into Excel files</li>
+                  <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Save custom scraped leads directly into private datasets</li>
                   <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Send automated WhatsApp marketing messages</li>
                   <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Send custom HTML email marketing campaigns</li>
                   <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Check size={15} style={{ color: '#22c55e', flexShrink: 0 }} /> Credits never expire and roll over automatically</li>
@@ -5168,17 +5950,40 @@ Please return ONLY the updated template text.`;
                           }}
                         >
                           <h5 style={{ margin: '0 0 8px 0', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}><Settings size={16} /> Custom Amount</h5>
-                          <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Enter credits needed:</label>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', marginBottom: '6px' }}>
+                            <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>Select Credits:</label>
+                            <input
+                              type="number"
+                              className="form-control"
+                              style={{ width: '80px', padding: '2px 6px', textAlign: 'center', fontWeight: 'bold', color: '#06b6d4', fontSize: '0.85rem' }}
+                              value={customCredits}
+                              onChange={(e) => { setCustomCredits(Math.max(10, parseInt(e.target.value) || 10)); setSelectedPackage('custom'); }}
+                              min="10"
+                            />
+                          </div>
+
                           <input
-                            type="number"
-                            className="form-control"
-                            style={{ width: '100%', margin: '6px 0' }}
-                            value={customCredits}
-                            onChange={(e) => { setCustomCredits(e.target.value); setSelectedPackage('custom'); }}
+                            type="range"
                             min="10"
+                            max="5000"
+                            step="10"
+                            value={customCredits}
+                            onChange={(e) => { setCustomCredits(parseInt(e.target.value)); setSelectedPackage('custom'); }}
+                            style={{
+                              width: '100%',
+                              height: '6px',
+                              borderRadius: '3px',
+                              background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${Math.min(100, (customCredits / 5000) * 100)}%, rgba(255,255,255,0.1) ${Math.min(100, (customCredits / 5000) * 100)}%, rgba(255,255,255,0.1) 100%)`,
+                              outline: 'none',
+                              cursor: 'pointer',
+                              margin: '8px 0',
+                              accentColor: '#06b6d4'
+                            }}
                           />
-                          <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#06b6d4' }}>
-                            ৳{(parseInt(customCredits) || 0) * 10} BDT
+
+                          <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#06b6d4', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                            <span>৳{(parseInt(customCredits) || 0) * (paymentConfig?.custom_package?.price_per_credit_bdt || 10)} BDT</span>
+                            <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 'normal' }}>{customCredits} CR (@ ৳{paymentConfig?.custom_package?.price_per_credit_bdt || 10}/CR)</small>
                           </div>
                         </div>
                       </div>
@@ -5601,6 +6406,7 @@ Please return ONLY the updated template text.`;
             </div>
           </div>
         )}
+        {renderRequestActionModal()}
       </>
     );
   }

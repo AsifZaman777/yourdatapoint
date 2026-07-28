@@ -1,4 +1,5 @@
 import os
+import io
 import json
 import time
 import uuid
@@ -12,6 +13,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request
+from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr
@@ -49,7 +51,7 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
 def startup_db_unban_admins():
     try:
         conn = get_db()
-        conn.execute("UPDATE users SET is_banned = 0, is_verified = 1, warning_message = '' WHERE role = 'admin' OR email = 'admin@marketingostad.com' OR email = 'admin@databazaar.com'")
+        conn.execute("UPDATE users SET is_banned = 0, is_verified = 1, warning_message = '' WHERE role IN ('admin', 'superadmin') OR email = 'admin@marketingostad.com' OR email = 'admin@databazaar.com'")
         conn.execute("DELETE FROM banned_ips")
         conn.commit()
         conn.close()
@@ -276,17 +278,20 @@ def register(req: RegisterRequest, request: Request):
 
 @app.get("/api/auth/verify-email")
 def verify_email(token: str):
-    if not token:
-        raise HTTPException(status_code=400, detail="Verification token is missing.")
+    if not token or not token.strip():
+        return {
+            "success": False,
+            "message": "Verification token is missing."
+        }
     
     conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE verification_token = ?", (token,)).fetchone()
+    user = conn.execute("SELECT * FROM users WHERE verification_token = ?", (token.strip(),)).fetchone()
     if not user:
         conn.close()
         return {
-            "success": True,
+            "success": False,
             "already_verified": True,
-            "message": "Your email address is already verified! Please log in to access your account."
+            "message": "This verification link is invalid or has already been used. If you already verified your email, please log in to access your account."
         }
     
     conn.execute("UPDATE users SET is_verified = 1, verification_token = NULL WHERE id = ?", (user["id"],))
@@ -615,7 +620,7 @@ def unlock_dataset(dataset_id: int, current_user: dict = Depends(get_current_use
         return {"success": True, "message": "Dataset already unlocked."}
 
     cost = ds["price_credits"]
-    if current_user["role"] != "admin":
+    if current_user["role"] not in ("admin", "superadmin"):
         if current_user["credits"] < cost:
             conn.close()
             raise HTTPException(status_code=403, detail="Insufficient credit balances to unlock this dataset.")
@@ -638,15 +643,139 @@ def unlock_dataset(dataset_id: int, current_user: dict = Depends(get_current_use
     conn.close()
     return {"success": True, "credits": user["credits"]}
 
+def generate_pdf_from_df(df: pd.DataFrame, title: str = "MarketingOstad Dataset Export") -> bytes:
+    try:
+        from reportlab.lib.pagesizes import letter, landscape
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib import colors
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=landscape(letter),
+            rightMargin=20,
+            leftMargin=20,
+            topMargin=20,
+            bottomMargin=20
+        )
+        elements = []
+        styles = getSampleStyleSheet()
+
+        title_style = ParagraphStyle(
+            'DocTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            textColor=colors.HexColor('#0a0e17'),
+            spaceAfter=8
+        )
+        elements.append(Paragraph(f"<b>MarketingOstad — {title}</b>", title_style))
+        elements.append(Paragraph(f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Total Business Items: {len(df)}", styles['Normal']))
+        elements.append(Spacer(1, 10))
+
+        cols = list(df.columns)[:7]
+        table_data = [[Paragraph(f"<b>{col}</b>", styles['Normal']) for col in cols]]
+
+        for _, row in df.head(300).iterrows():
+            row_data = []
+            for col in cols:
+                val = str(row[col]) if pd.notna(row[col]) and str(row[col]) != "nan" else ""
+                if len(val) > 40:
+                    val = val[:37] + "..."
+                row_data.append(Paragraph(val, styles['Normal']))
+            table_data.append(row_data)
+
+        t = Table(table_data, repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#06b6d4')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')])
+        ]))
+        elements.append(t)
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer.getvalue()
+    except Exception as e:
+        print("[PDF GENERATION NOTICE]", e)
+        header = f"MarketingOstad Dataset Export: {title}\nDate: {datetime.now()}\nTotal Records: {len(df)}\n\n"
+        body = df.to_string(index=False)
+        return (header + body).encode("utf-8")
+
+def generate_export_response(file_path: str, export_format: str, title: str = "Exported_Dataset"):
+    fmt = (export_format or "excel").lower().strip()
+    safe_title = "".join(c for c in title if c.isalnum() or c in ("_", "-")).strip() or "Dataset"
+    filename_base = f"{safe_title}_{int(time.time())}"
+
+    if file_path.endswith(".csv"):
+        df = pd.read_csv(file_path, dtype=str).fillna("")
+    else:
+        df = pd.read_excel(file_path, dtype=str).fillna("")
+
+    if fmt in ("csv", ".csv"):
+        csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
+        return Response(
+            content=csv_bytes,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.csv"'}
+        )
+
+    elif fmt in ("json", ".json"):
+        json_bytes = df.to_json(orient="records", indent=2, force_ascii=False).encode("utf-8")
+        return Response(
+            content=json_bytes,
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.json"'}
+        )
+
+    elif fmt in ("pdf", ".pdf"):
+        pdf_bytes = generate_pdf_from_df(df, title=title)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.pdf"'}
+        )
+
+    else:
+        if file_path.endswith(".xlsx") and os.path.exists(file_path):
+            return FileResponse(
+                file_path,
+                filename=f"{filename_base}.xlsx",
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        out_buf = io.BytesIO()
+        with pd.ExcelWriter(out_buf, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Exported_Leads")
+        out_buf.seek(0)
+        return Response(
+            content=out_buf.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.xlsx"'}
+        )
+
 @app.get("/api/datasets/{dataset_id}/export")
-def export_dataset(dataset_id: str, token: Optional[str] = None):
+def export_dataset(dataset_id: str, request: Request, format: Optional[str] = "excel", token: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    current_user = get_current_user(request=request, authorization=authorization, token=token)
+    if current_user.get("role") not in ("admin", "superadmin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied. Only Administrators can export datasets."
+        )
+
     conn = get_db()
     file_path = None
+    title_name = "Exported_Dataset"
     if str(dataset_id).startswith("job_"):
         job_real_id = str(dataset_id).replace("job_", "")
         job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_real_id,)).fetchone()
         if job:
             file_path = job["result_path"]
+            title_name = job["query"] or f"Job_{job['id']}"
             if file_path and not os.path.exists(file_path):
                 fn = os.path.basename(file_path.replace("\\", "/"))
                 if os.path.exists(os.path.join(SCRAPE_RESULTS_FOLDER, fn)):
@@ -655,14 +784,13 @@ def export_dataset(dataset_id: str, token: Optional[str] = None):
         ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
         if ds:
             file_path = resolve_dataset_file_path(ds["file_path"], int(dataset_id))
+            title_name = ds["name"]
     conn.close()
 
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Data file missing.")
 
-    from fastapi.responses import FileResponse
-    filename = os.path.basename(file_path)
-    return FileResponse(file_path, filename=filename, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    return generate_export_response(file_path, export_format=format, title=title_name)
 
 # ── Admin Upload ─────────────────────────────────────────
 
@@ -679,7 +807,7 @@ def admin_upload(
 ):
     ext = file.filename.rsplit(".", 1)[-1].lower()
     if ext not in ("csv", "xlsx", "xls"):
-        raise HTTPException(status_code=400, detail="Only CSV/Excel formats are supported.")
+        raise HTTPException(status_code=400, detail="Only valid dataset formats (.xlsx, .csv) are supported.")
         
     filename = f"{int(time.time())}_{file.filename}"
     file_path = os.path.join(UPLOAD_FOLDER, filename)
@@ -751,7 +879,7 @@ def run_background_scrape(job_id, queries, division, district, area, headless=Fa
             )
             db.commit()
             db.close()
-            log_cb(f"🎉 Scraper completed all {len(queries)} queries! Aggregated {len(all_results)} total business items into a single Excel file.")
+            log_cb(f"🎉 Scraper completed all {len(queries)} queries! Aggregated {len(all_results)} total business items into your private catalogue dataset.")
         else:
             db = get_db()
             db.execute("UPDATE scrape_jobs SET status = 'failed', error_message = 'No records parsed from any query.' WHERE id = ?", (job_id,))
@@ -770,8 +898,182 @@ def run_background_scrape(job_id, queries, division, district, area, headless=Fa
         db.close()
         log_cb(f"Fatal scraper thread exception: {ex}")
 
+# ── Dataset Requests Portal API ──────────────────────────────
+
+class DatasetRequestCreate(BaseModel):
+    phone: str
+    business_name: Optional[str] = ""
+    category_query: str
+    division: Optional[str] = ""
+    district: Optional[str] = ""
+    area: Optional[str] = ""
+    additional_notes: Optional[str] = ""
+
+class DatasetRequestStatusUpdate(BaseModel):
+    status: str # 'pending', 'fulfilled', 'rejected'
+    admin_notes: Optional[str] = ""
+    notify_channel: Optional[str] = "none" # 'email', 'whatsapp', 'both', 'none'
+    custom_message: Optional[str] = ""
+
+def send_custom_notification(recipient_email: str, recipient_phone: str, subject: str, message: str, channel: str):
+    """Sends custom notification to user about request status update via Email and/or WhatsApp"""
+    sent_email = False
+    sent_wa = False
+
+    # 1. Email Notification
+    if channel in ("email", "both") and recipient_email:
+        try:
+            brevo_api_key = os.getenv("BREVO_API_KEY", "")
+            smtp_user = os.getenv("SMTP_USER", "asifdev777@gmail.com")
+            smtp_pass = os.getenv("SMTP_PASSWORD", os.getenv("BREVO_SMTP_KEY", os.getenv("SMTP_PASS", "")))
+            smtp_server = os.getenv("SMTP_SERVER", "smtp-relay.brevo.com")
+            smtp_port = int(os.getenv("SMTP_PORT", 587))
+
+            html_body = f"""
+            <div style="font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; padding: 30px; border-radius: 10px;">
+                <h2 style="color: #06b6d4; margin-top: 0;">MarketingOstad - Dataset Request Update</h2>
+                <div style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 8px; border-left: 4px solid #06b6d4; margin: 20px 0;">
+                    <p style="font-size: 1rem; line-height: 1.6; white-space: pre-wrap; margin: 0; color: #f8fafc;">{message}</p>
+                </div>
+                <p style="font-size: 0.85rem; color: #94a3b8; margin-top: 30px;">
+                    Thank you for choosing MarketingOstad Data Platform.<br>
+                    Website: <a href="https://yourdatapoint.com" style="color: #06b6d4;">yourdatapoint.com</a>
+                </p>
+            </div>
+            """
+
+            if brevo_api_key:
+                try:
+                    import urllib.request
+                    import json
+                    headers = {
+                        "accept": "application/json",
+                        "api-key": brevo_api_key,
+                        "content-type": "application/json"
+                    }
+                    payload = {
+                        "sender": {"name": "MarketingOstad Team", "email": smtp_user},
+                        "to": [{"email": recipient_email}],
+                        "subject": subject,
+                        "htmlContent": html_body
+                    }
+                    req = urllib.request.Request("https://api.brevo.com/v3/smtp/email", data=json.dumps(payload).encode("utf-8"), headers=headers)
+                    with urllib.request.urlopen(req) as resp:
+                        if resp.status in (200, 201):
+                            sent_email = True
+                except Exception as e:
+                    print(f"[BREVO NOTIF ERROR] {e}")
+
+            if not sent_email and smtp_pass:
+                try:
+                    msg = MIMEMultipart("alternative")
+                    msg["Subject"] = subject
+                    msg["From"] = f"MarketingOstad Team <{smtp_user}>"
+                    msg["To"] = recipient_email
+                    msg.attach(MIMEText(html_body, "html"))
+                    with smtplib.SMTP(smtp_server, smtp_port) as server:
+                        server.starttls()
+                        server.login(smtp_user, smtp_pass)
+                        server.sendmail(smtp_user, recipient_email, msg.as_string())
+                    sent_email = True
+                except Exception as e:
+                    print(f"[SMTP NOTIF ERROR] {e}")
+        except Exception as e:
+            print(f"[NOTIF EMAIL GENERAL EXCEPTION] {e}")
+
+    # 2. WhatsApp Notification
+    if channel in ("whatsapp", "both") and recipient_phone:
+        try:
+            from senders import format_phone
+            clean_p = format_phone(recipient_phone)
+            camp_id = f"notif_wa_{int(time.time())}"
+            contacts_list = [{"name": "User", "phone": clean_p}]
+            t = threading.Thread(target=run_whatsapp_campaign, args=(camp_id, contacts_list, message, f"notif_{clean_p}", 0))
+            t.daemon = True
+            t.start()
+            sent_wa = True
+        except Exception as e:
+            print(f"[NOTIF WHATSAPP ERROR] {e}")
+
+    return sent_email or sent_wa
+
+@app.post("/api/requests/submit")
+def submit_dataset_request(req: DatasetRequestCreate, current_user: dict = Depends(get_current_user)):
+    if not req.category_query or not req.category_query.strip():
+        raise HTTPException(status_code=400, detail="Required data / category query cannot be empty.")
+    if not req.phone or not req.phone.strip():
+        raise HTTPException(status_code=400, detail="Contact phone number is required.")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO dataset_requests (
+            user_id, user_email, full_name, phone, business_name,
+            category_query, division, district, area, additional_notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        current_user["id"], current_user["email"], current_user.get("full_name", "User"),
+        req.phone.strip(), (req.business_name or "").strip(),
+        req.category_query.strip(), (req.division or "").strip(),
+        (req.district or "").strip(), (req.area or "").strip(),
+        (req.additional_notes or "").strip()
+    ))
+    conn.commit()
+    request_id = cursor.lastrowid
+    conn.close()
+    return {"success": True, "request_id": request_id, "message": "Dataset request submitted successfully! Our data team will review and drop this dataset into the Public Catalog."}
+
+@app.get("/api/requests/my-requests")
+def get_my_dataset_requests(current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM dataset_requests WHERE user_id = ? ORDER BY created_at DESC", (current_user["id"],)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.get("/api/requests/admin/list")
+def list_dataset_requests(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+    conn = get_db()
+    rows = conn.execute("SELECT dr.*, u.credits FROM dataset_requests dr JOIN users u ON dr.user_id = u.id ORDER BY dr.created_at DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/api/requests/admin/{request_id}/status")
+def update_dataset_request_status(request_id: int, req: DatasetRequestStatusUpdate, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Admin authorization required.")
+    if req.status not in ("pending", "fulfilled", "rejected"):
+        raise HTTPException(status_code=400, detail="Invalid status value.")
+    conn = get_db()
+    req_row = conn.execute("SELECT * FROM dataset_requests WHERE id = ?", (request_id,)).fetchone()
+    if not req_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Dataset request not found.")
+
+    conn.execute("UPDATE dataset_requests SET status = ?, admin_notes = ? WHERE id = ?", (req.status, (req.admin_notes or "").strip(), request_id))
+    conn.commit()
+    conn.close()
+
+    if req.notify_channel and req.notify_channel != "none" and req.custom_message and req.custom_message.strip():
+        subj = f"Dataset Request #{request_id} Update: {req.status.upper()}"
+        send_custom_notification(
+            recipient_email=req_row["user_email"],
+            recipient_phone=req_row["phone"],
+            subject=subj,
+            message=req.custom_message.strip(),
+            channel=req.notify_channel
+        )
+
+    return {"success": True, "message": f"Dataset request status updated to '{req.status}'!"}
+
 @app.post("/api/scraper/scrape")
 def trigger_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ("admin", "superadmin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Direct background scraping is restricted to System Administrators to preserve server resources. Please submit a request via the Dataset Request Portal."
+        )
     query_list = []
     if req.queries and isinstance(req.queries, list):
         query_list = [q.strip() for q in req.queries if q and q.strip()]
@@ -784,7 +1086,7 @@ def trigger_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks, curren
     display_query = " + ".join(query_list)
     cost = 20 * len(query_list)
     conn = get_db()
-    if current_user["role"] != "admin":
+    if current_user["role"] not in ("admin", "superadmin"):
         if current_user["credits"] < cost:
             conn.close()
             raise HTTPException(status_code=403, detail=f"Insufficient credits to run scraper (costs {cost} credits for {len(query_list)} queries).")
@@ -810,7 +1112,7 @@ def trigger_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks, curren
 @app.get("/api/scraper/jobs")
 def get_jobs(current_user: dict = Depends(get_current_user)):
     conn = get_db()
-    if current_user["role"] == "admin":
+    if current_user["role"] in ("admin", "superadmin"):
         jobs = conn.execute("SELECT sj.*, u.email FROM scrape_jobs sj JOIN users u ON sj.user_id = u.id ORDER BY sj.created_at DESC").fetchall()
     else:
         jobs = conn.execute("SELECT * FROM scrape_jobs WHERE user_id = ? ORDER BY created_at DESC", (current_user["id"],)).fetchall()
@@ -950,6 +1252,8 @@ def get_payment_gateway_settings():
     
     settings_dict = {row["setting_key"]: row["setting_value"] for row in rows if row["setting_value"]}
     
+    from config import load_credit_packages_config
+    pkg_cfg = load_credit_packages_config()
     return {
         "bkash_number": settings_dict.get("bkash_number") or BKASH_NUMBER,
         "bkash_account_type": settings_dict.get("bkash_account_type") or BKASH_ACCOUNT_TYPE,
@@ -957,7 +1261,8 @@ def get_payment_gateway_settings():
         "pathao_number": settings_dict.get("pathao_number") or PATHAO_NUMBER,
         "pathao_account_type": settings_dict.get("pathao_account_type") or PATHAO_ACCOUNT_TYPE,
         "pathao_qr_url": settings_dict.get("pathao_qr_url") or "",
-        "packages": CREDIT_PACKAGES
+        "packages": pkg_cfg.get("packages", []),
+        "custom_package": pkg_cfg.get("custom_package", {})
     }
 
 @app.get("/api/payments/packages-config")
@@ -1257,7 +1562,7 @@ def send_whatsapp(req: WhatsAppCampaignRequest, background_tasks: BackgroundTask
     if req.start_row is not None and req.start_row > 0:
         start_index = req.start_row
             
-    if current_user["role"] != "admin" and not req.resume:
+    if current_user["role"] not in ("admin", "superadmin") and not req.resume:
         if current_user["credits"] < 5:
             conn.close()
             raise HTTPException(status_code=403, detail="Insufficient credits (campaign costs 5 credits).")
@@ -1415,7 +1720,7 @@ def get_recipient_contacts(recipient_group: str, current_user: dict = Depends(ge
 @app.get("/api/marketing/campaigns")
 def list_campaigns(current_user: dict = Depends(get_current_user)):
     conn = get_db()
-    if current_user["role"] == "admin":
+    if current_user["role"] in ("admin", "superadmin"):
         rows = conn.execute("""
             SELECT c.*, u.email, u.full_name FROM marketing_campaigns c
             JOIN users u ON c.user_id = u.id
@@ -1492,7 +1797,7 @@ def update_user_admin(target_user_id: int, req: UpdateUserRequest, admin_user: d
         conn.close()
         raise HTTPException(status_code=404, detail="User account not found.")
     
-    if req.role and req.role in ("user", "admin"):
+    if req.role and req.role in ("user", "admin", "superadmin"):
         conn.execute("UPDATE users SET role = ? WHERE id = ?", (req.role, target_user_id))
     if req.full_name is not None:
         conn.execute("UPDATE users SET full_name = ? WHERE id = ?", (req.full_name, target_user_id))
@@ -1620,7 +1925,7 @@ def get_regions_config():
 @app.get("/api/marketing/dashboard-stats")
 def dashboard_stats(current_user: dict = Depends(get_current_user)):
     conn = get_db()
-    if current_user["role"] == "admin":
+    if current_user["role"] in ("admin", "superadmin"):
         campaigns = conn.execute("SELECT * FROM marketing_campaigns ORDER BY created_at DESC").fetchall()
     else:
         campaigns = conn.execute("SELECT * FROM marketing_campaigns WHERE user_id = ? ORDER BY created_at DESC", (current_user["id"],)).fetchall()

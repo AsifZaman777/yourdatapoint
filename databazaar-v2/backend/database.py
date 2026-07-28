@@ -164,6 +164,27 @@ def init_db():
         )
     """)
 
+    # Dataset Requests portal table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dataset_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            user_email TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            business_name TEXT,
+            category_query TEXT NOT NULL,
+            division TEXT,
+            district TEXT,
+            area TEXT,
+            additional_notes TEXT,
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'fulfilled', 'rejected')),
+            admin_notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
     # Security Violations
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS security_violations (
