@@ -3723,6 +3723,16 @@ Please return ONLY the updated template text.`;
                         ))}
                         <option value="Other">Other / Custom...</option>
                       </select>
+                      {scrapeDiv === 'Other' && (
+                        <input
+                          type="text"
+                          className="form-control"
+                          style={{ marginTop: '8px' }}
+                          placeholder="Type custom division..."
+                          value={scrapeDivCustom}
+                          onChange={(e) => setScrapeDivCustom(e.target.value)}
+                        />
+                      )}
                     </div>
 
                     <div className="form-group">
@@ -3734,6 +3744,16 @@ Please return ONLY the updated template text.`;
                         ))}
                         <option value="Other">Other / Custom...</option>
                       </select>
+                      {scrapeDist === 'Other' && (
+                        <input
+                          type="text"
+                          className="form-control"
+                          style={{ marginTop: '8px' }}
+                          placeholder="Type custom district..."
+                          value={scrapeDistCustom}
+                          onChange={(e) => setScrapeDistCustom(e.target.value)}
+                        />
+                      )}
                     </div>
 
                     <div className="form-group">
@@ -3745,6 +3765,16 @@ Please return ONLY the updated template text.`;
                         ))}
                         <option value="Other">Other / Custom...</option>
                       </select>
+                      {scrapeArea === 'Other' && (
+                        <input
+                          type="text"
+                          className="form-control"
+                          style={{ marginTop: '8px' }}
+                          placeholder="Type custom area..."
+                          value={scrapeAreaCustom}
+                          onChange={(e) => setScrapeAreaCustom(e.target.value)}
+                        />
+                      )}
                     </div>
 
                     {scrapeRateLimit > 0 ? (
@@ -3862,16 +3892,7 @@ Please return ONLY the updated template text.`;
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           {job.status === 'done' && (
                             <>
-                              {/* Icon 1: View Dataset Preview */}
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-sm"
-                                style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderColor: 'rgba(6, 182, 212, 0.5)', color: '#38bdf8' }}
-                                title="View & Preview Scraped Leads"
-                                onClick={() => openDatasetDetails(`job_${job.id}`)}
-                              >
-                                <Eye size={15} />
-                              </button>
+                            
 
                               {/* Icon 2: Open in My Private Datasets Catalog */}
                               <button
@@ -3885,7 +3906,7 @@ Please return ONLY the updated template text.`;
                                   showToast(`Opened "${job.query}" in My Private Datasets Catalog!`, 'info');
                                 }}
                               >
-                                <Lock size={15} />
+                                   <Eye size={15} />
                               </button>
 
                               {/* Icon 3: Use in Marketing Portal */}
