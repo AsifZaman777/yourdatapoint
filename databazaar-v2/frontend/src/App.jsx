@@ -127,26 +127,30 @@ export default function App() {
   const [scrapeRateLimit, setScrapeRateLimit] = useState(() => {
     const until = localStorage.getItem('scrapeRateLimitUntil');
     if (until) {
-      const remaining = Math.ceil((parseInt(until, 10) - Date.now()) / 1000);
-      return remaining > 0 ? remaining : 0;
+      const remaining = Math.max(0, Math.ceil((parseInt(until, 10) - Date.now()) / 1000));
+      return remaining;
     }
     return 0;
   });
 
   useEffect(() => {
-    let timerId = null;
-    if (scrapeRateLimit > 0) {
-      timerId = setInterval(() => {
-        setScrapeRateLimit((prev) => {
-          if (prev <= 1) {
-            localStorage.removeItem('scrapeRateLimitUntil');
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-  }, [scrapeRateLimit]);
+    const updateRateLimitTimer = () => {
+      const until = localStorage.getItem('scrapeRateLimitUntil');
+      if (until) {
+        const remaining = Math.max(0, Math.ceil((parseInt(until, 10) - Date.now()) / 1000));
+        setScrapeRateLimit(remaining);
+        if (remaining <= 0) {
+          localStorage.removeItem('scrapeRateLimitUntil');
+        }
+      } else {
+        setScrapeRateLimit(0);
+      }
+    };
+
+    updateRateLimitTimer();
+    const timerId = setInterval(updateRateLimitTimer, 1000);
+    return () => clearInterval(timerId);
+  }, []);
 
   // Dataset Requests Portal states
   const [reqCategoryTags, setReqCategoryTags] = useState([]);
@@ -3800,62 +3804,125 @@ Please return ONLY the updated template text.`;
                     </div>
                   )}
 
-                  <h4 style={{ margin: '20px 0 10px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <History size={16} style={{ color: '#06b6d4' }} /> My Scraped Datasets & Job History
-                  </h4>
-                  <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '24px 0 12px 0' }}>
+                    <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', color: '#fff' }}>
+                      <Lock size={16} style={{ color: '#06b6d4' }} /> My Scraped Datasets & Job History
+                    </h4>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', background: 'rgba(6, 182, 212, 0.1)', padding: '2px 10px', borderRadius: '12px', border: '1px solid rgba(6, 182, 212, 0.2)' }}>
+                      {scraperJobs.length} Private Scrape{scraperJobs.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  <div style={{ maxHeight: '340px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '6px', background: 'rgba(10, 14, 23, 0.4)' }}>
                     {scraperJobs.map(job => (
-                      <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', alignItems: 'center', background: 'rgba(255,255,255,0.02)', margin: '4px 0', borderRadius: '6px' }}>
-                        <div>
-                          <div style={{ fontSize: '0.85rem' }}><strong>{job.query}</strong></div>
-                          <small style={{ color: 'var(--text-muted)' }}>
-                            Status: <span style={{ color: job.status === 'done' ? '#22c55e' : job.status === 'failed' ? '#ef4444' : '#eab308', fontWeight: 'bold' }}>{job.status}</span> | {job.result_count || 0} leads extracted
-                          </small>
+                      <div
+                        key={job.id}
+                        className="glowing-panel"
+                        style={{
+                          display: 'flex',
+                          justify: 'space-between',
+                          padding: '12px 14px',
+                          borderBottom: '1px solid var(--border-subtle)',
+                          alignItems: 'center',
+                          background: 'rgba(15, 23, 42, 0.6)',
+                          margin: '6px 0',
+                          borderRadius: '8px',
+                          flexWrap: 'wrap',
+                          gap: '12px'
+                        }}
+                      >
+                        <div style={{ flex: '1', minWidth: '200px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <Lock size={11} /> Private Dataset #{job.id}
+                            </span>
+                            <span style={{
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              fontSize: '0.7rem',
+                              fontWeight: 'bold',
+                              background: job.status === 'done' ? 'rgba(34, 197, 94, 0.15)' : job.status === 'failed' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                              color: job.status === 'done' ? '#22c55e' : job.status === 'failed' ? '#ef4444' : '#eab308'
+                            }}>
+                              {job.status === 'done' ? `✓ ${job.result_count || 0} Leads` : job.status === 'failed' ? '❌ Failed' : '⚡ Scraping...'}
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: '0.9rem', color: '#fff', fontWeight: 'bold', marginBottom: '2px' }}>
+                            {job.query}
+                          </div>
+
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                            <span>📍 {[job.division, job.district, job.area].filter(Boolean).join(', ') || 'Bangladesh'}</span>
+                            <span>📅 {job.created_at ? new Date(job.created_at).toLocaleDateString() : 'Just now'}</span>
+                          </div>
                         </div>
+
+                        {/* Icon-Only Action Controls */}
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           {job.status === 'done' && (
                             <>
+                              {/* Icon 1: View Dataset Preview */}
                               <button
+                                type="button"
                                 className="btn btn-secondary btn-sm"
-                                title="Preview Scraped Leads"
+                                style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderColor: 'rgba(6, 182, 212, 0.5)', color: '#38bdf8' }}
+                                title="View & Preview Scraped Leads"
                                 onClick={() => openDatasetDetails(`job_${job.id}`)}
                               >
-                                View Leads
+                                <Eye size={15} />
                               </button>
-                              <a
-                                href={`${API_BASE}/api/datasets/download/job_${job.id}?format=xlsx`}
-                                target="_blank"
-                                rel="noreferrer"
+
+                              {/* Icon 2: Open in My Private Datasets Catalog */}
+                              <button
+                                type="button"
                                 className="btn btn-secondary btn-sm"
-                                title="Download Excel File"
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderColor: 'rgba(6, 182, 212, 0.4)', background: 'rgba(6, 182, 212, 0.1)', color: '#06b6d4' }}
+                                title="Open in My Private Datasets Catalog"
+                                onClick={() => {
+                                  setCurrentTab('catalog');
+                                  setCatalogTab('private');
+                                  showToast(`Opened "${job.query}" in My Private Datasets Catalog!`, 'info');
+                                }}
                               >
-                                <Download size={13} /> Excel
-                              </a>
-                              {user && (user.role === 'admin' || user.role === 'superadmin') ? (
-                                <button className="btn btn-primary btn-sm" title="Promote to Public Catalog" onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}>
-                                  <Database size={13} /> Drop to Catalog
-                                </button>
-                              ) : job.promotion_status === 'approved' ? (
-                                <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 'bold' }}>✓ In Catalog</span>
-                              ) : job.promotion_status === 'pending' ? (
-                                <span style={{ fontSize: '0.75rem', color: '#eab308', fontWeight: 'bold' }}>⏳ Drop Requested</span>
-                              ) : (
-                                <button className="btn btn-secondary btn-sm" title="Request Admin to Drop to Public Catalog" onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}>
-                                  <Database size={13} /> Request Catalog Drop
-                                </button>
-                              )}
+                                <Lock size={15} />
+                              </button>
+
+                              {/* Icon 3: Use in Marketing Portal */}
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(168, 85, 247, 0.15)', borderColor: 'rgba(168, 85, 247, 0.4)', color: '#c084fc' }}
+                                title="Use Leads in Marketing Portal (WhatsApp & Email)"
+                                onClick={() => {
+                                  setWaRecipientGroup(`job_${job.id}`);
+                                  setCurrentTab('marketing');
+                                  setMarketingSubTab('whatsapp');
+                                  showToast(`Loaded "${job.query}" leads into Marketing Portal!`, 'success');
+                                }}
+                              >
+                                <Send size={15} />
+                              </button>
                             </>
                           )}
-                          <button className="btn btn-danger btn-sm" title="Delete job" onClick={() => handleDeleteJob(job.id, job.query)}>
-                            <X size={13} />
+
+                          {/* Icon 6: Delete Job */}
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            title="Delete Private Scrape Job"
+                            onClick={() => handleDeleteJob(job.id, job.query)}
+                          >
+                            <Trash2 size={15} />
                           </button>
                         </div>
                       </div>
                     ))}
+
                     {scraperJobs.length === 0 && (
-                      <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                        No scraper runs initiated yet. Fill the form on the left to launch your first Google Maps scrape!
+                      <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        No private scraper jobs initiated yet. Launch a scrape above to create your first private dataset!
                       </div>
                     )}
                   </div>

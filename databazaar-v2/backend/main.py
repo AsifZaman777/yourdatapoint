@@ -1167,29 +1167,22 @@ def request_promote_job(job_id: int, category: str = Form(...), name: str = Form
         conn.close()
         raise HTTPException(status_code=403, detail="You do not have permission to request promotion for this dataset.")
 
-    # If Admin or Superadmin: auto-approve & promote directly
-    if current_user["role"] in ("admin", "superadmin"):
-        new_filename = f"promoted_{job_id}_{int(time.time())}.xlsx"
-        new_path = os.path.join(UPLOAD_FOLDER, new_filename)
-        import shutil
-        shutil.copy(job["result_path"], new_path)
-        rel_path = f"uploads/{new_filename}"
+    # Promote dataset directly into public catalog
+    new_filename = f"promoted_{job_id}_{int(time.time())}.xlsx"
+    new_path = os.path.join(UPLOAD_FOLDER, new_filename)
+    import shutil
+    shutil.copy(job["result_path"], new_path)
+    rel_path = f"uploads/{new_filename}"
 
-        conn.execute(
-            """INSERT INTO datasets (name, category, division, district, area, file_path, row_count, column_names, price_credits, uploaded_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'Name, Phone, Address, Website, Rating, Category, Maps URL, Query', 10, ?)""",
-            (name, category, job["division"], job["district"], job["area"], rel_path, job["result_count"], current_user["id"])
-        )
-        conn.execute("UPDATE scrape_jobs SET promotion_status = 'approved', proposed_name = ?, proposed_category = ? WHERE id = ?", (name, category, job_id))
-        conn.commit()
-        conn.close()
-        return {"success": True, "message": "Scraped dataset promoted successfully to the global catalog!"}
-
-    # Regular user: submit promotion request for admin review
-    conn.execute("UPDATE scrape_jobs SET promotion_status = 'pending', proposed_name = ?, proposed_category = ? WHERE id = ?", (name, category, job_id))
+    conn.execute(
+        """INSERT INTO datasets (name, category, division, district, area, file_path, row_count, column_names, price_credits, uploaded_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'Name, Phone, Address, Website, Rating, Category, Maps URL, Query', 10, ?)""",
+        (name, category, job["division"], job["district"], job["area"], rel_path, job["result_count"], current_user["id"])
+    )
+    conn.execute("UPDATE scrape_jobs SET promotion_status = 'approved', proposed_name = ?, proposed_category = ? WHERE id = ?", (name, category, job_id))
     conn.commit()
     conn.close()
-    return {"success": True, "message": "Promotion request submitted to Admin for approval!"}
+    return {"success": True, "message": "Scraped dataset dropped successfully into the Public Catalog!"}
 
 @app.get("/api/admin/promotion-requests")
 def list_promotion_requests(admin_user: dict = Depends(get_admin_user)):
