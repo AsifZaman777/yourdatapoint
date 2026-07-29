@@ -1069,11 +1069,6 @@ def update_dataset_request_status(request_id: int, req: DatasetRequestStatusUpda
 
 @app.post("/api/scraper/scrape")
 def trigger_scrape(req: ScrapeRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") not in ("admin", "superadmin"):
-        raise HTTPException(
-            status_code=403,
-            detail="Direct background scraping is restricted to System Administrators to preserve server resources. Please submit a request via the Dataset Request Portal."
-        )
     query_list = []
     if req.queries and isinstance(req.queries, list):
         query_list = [q.strip() for q in req.queries if q and q.strip()]
