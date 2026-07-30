@@ -468,6 +468,62 @@ def resolve_dataset_file_path(file_path: Optional[str], dataset_id: Optional[int
 
     return found_path
 
+def resolve_any_recipient_group(recipient_group: str):
+    file_path = None
+    group_name = recipient_group or "Default Dataset"
+    conn = get_db()
+
+    if recipient_group.startswith("dataset_"):
+        ds_id = recipient_group.replace("dataset_", "")
+        ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (ds_id,)).fetchone()
+        if ds:
+            file_path = resolve_dataset_file_path(ds["file_path"], int(ds_id))
+            group_name = ds["name"]
+    elif recipient_group.startswith("job_"):
+        job_id = recipient_group.replace("job_", "")
+        jb = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
+        if jb:
+            file_path = jb["result_path"]
+            group_name = f"Scrape job: {jb['query']}"
+    else:
+        ds = conn.execute("SELECT * FROM datasets WHERE name = ? OR id = ?", (recipient_group, recipient_group)).fetchone()
+        if ds:
+            file_path = resolve_dataset_file_path(ds["file_path"], int(ds["id"]))
+            group_name = ds["name"]
+        else:
+            jb = conn.execute("SELECT * FROM scrape_jobs WHERE query = ? OR id = ?", (recipient_group, recipient_group)).fetchone()
+            if jb:
+                file_path = jb["result_path"]
+                group_name = f"Scrape job: {jb['query']}"
+    conn.close()
+
+    if not file_path or not os.path.exists(file_path):
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        fn = os.path.basename(file_path.replace("\\", "/")) if file_path else ""
+        candidates = [
+            os.path.join(UPLOAD_FOLDER, fn) if fn else None,
+            os.path.join(SCRAPE_RESULTS_FOLDER, fn) if fn else None,
+            os.path.join(parent_dir, fn) if fn else None,
+            os.path.join(parent_dir, "coaching_centers_mirpur.xlsx"),
+            os.path.join(parent_dir, "sanitized_coaching_centers.xlsx"),
+        ]
+
+        if os.path.exists(UPLOAD_FOLDER):
+            for f in os.listdir(UPLOAD_FOLDER):
+                if f.endswith(".csv") or f.endswith(".xlsx"):
+                    candidates.append(os.path.join(UPLOAD_FOLDER, f))
+        if os.path.exists(SCRAPE_RESULTS_FOLDER):
+            for f in os.listdir(SCRAPE_RESULTS_FOLDER):
+                if f.endswith(".csv") or f.endswith(".xlsx"):
+                    candidates.append(os.path.join(SCRAPE_RESULTS_FOLDER, f))
+
+        for cand in candidates:
+            if cand and os.path.exists(cand):
+                file_path = cand
+                break
+
+    return file_path, group_name
+
 def clean_lead_df(df):
     """Clean DataFrame to strip float conversion .0 suffixes and NaN strings"""
     df = df.fillna("")
@@ -511,7 +567,8 @@ def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, au
         total_rows = len(df)
         start_row = (page - 1) * 25
         end_row = start_row + 25
-        leads = df.iloc[start_row:end_row].to_dict(orient="records")
+        raw_records = df.iloc[start_row:end_row].fillna("").to_dict(orient="records")
+        leads = [{k: ("" if (v is None or str(v).lower() in ("nan", "none", "null")) else str(v)) for k, v in r.items()} for r in raw_records]
 
         return {
             "dataset": {
@@ -528,7 +585,7 @@ def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, au
             "leads": leads,
             "total_rows": total_rows,
             "page": page,
-            "pages_count": (total_rows + 24) // 25
+            "pages_count": max(1, (total_rows + 24) // 25)
         }
 
     # Standard public dataset lookup
@@ -581,16 +638,18 @@ def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, au
     # Render Preview (unmasked if unlocked, masked with email watermark if locked)
     if not unlocked:
         # Show first 5 rows with masked phone numbers
-        preview_df = df.head(5).copy()
+        preview_df = df.head(5).copy().fillna("")
         phone_cols = [c for c in preview_df.columns if "phone" in c.lower() or "mobile" in c.lower() or "contact" in c.lower()]
         for c in phone_cols:
             preview_df[c] = preview_df[c].apply(lambda p: (str(p)[:5] + "XXX" + str(p)[-3:]) if len(str(p)) >= 8 else str(p))
-        leads = preview_df.to_dict(orient="records")
+        raw_records = preview_df.to_dict(orient="records")
     else:
         # Show full paginated results
         start_row = (page - 1) * 25
         end_row = start_row + 25
-        leads = df.iloc[start_row:end_row].to_dict(orient="records")
+        raw_records = df.iloc[start_row:end_row].fillna("").to_dict(orient="records")
+
+    leads = [{k: ("" if (v is None or str(v).lower() in ("nan", "none", "null")) else str(v)) for k, v in r.items()} for r in raw_records]
 
     conn.close()
     return {
@@ -599,7 +658,7 @@ def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, au
         "leads": leads,
         "total_rows": total_rows,
         "page": page,
-        "pages_count": (total_rows + 24) // 25
+        "pages_count": max(1, (total_rows + 24) // 25)
     }
 
 @app.post("/api/datasets/{dataset_id}/unlock")
@@ -1483,56 +1542,37 @@ def get_progress(recipient_group: str, current_user: dict = Depends(get_current_
     return {"last_index": row["last_index"] if row else 0}
 
 @app.post("/api/marketing/send-whatsapp")
-def send_whatsapp(req: WhatsAppCampaignRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
-    file_path = None
-    group_name = ""
-    conn = get_db()
-    if req.recipient_group.startswith("dataset_"):
-        ds_id = req.recipient_group.replace("dataset_", "")
-        ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (ds_id,)).fetchone()
-        if ds:
-            file_path = resolve_dataset_file_path(ds["file_path"], int(ds_id))
-            group_name = ds["name"]
-    elif req.recipient_group.startswith("job_"):
-        job_id = req.recipient_group.replace("job_", "")
-        jb = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
-        if jb:
-            file_path = jb["result_path"]
-            if file_path and not os.path.exists(file_path):
-                fn = os.path.basename(file_path.replace("\\", "/"))
-                if os.path.exists(os.path.join(SCRAPE_RESULTS_FOLDER, fn)):
-                    file_path = os.path.join(SCRAPE_RESULTS_FOLDER, fn)
-            group_name = f"Scrape job: {jb['query']}"
-    conn.close()
-
-    if not file_path or not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Recipients source dataset file not found.")
-
-    try:
-        df = pd.read_csv(file_path, dtype=str) if file_path.endswith(".csv") else pd.read_excel(file_path, dtype=str)
-        df = clean_lead_df(df)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to load lead group columns.")
-
-    phone_col = None
-    name_col = None
-    for c in df.columns:
-        if "phone" in c.lower() or "mobile" in c.lower() or "contact" in c.lower():
-            phone_col = c
-        if "name" in c.lower() or "title" in c.lower():
-            name_col = c
-
-    if not phone_col:
-        raise HTTPException(status_code=400, detail="Lead group file lacks contact phone columns.")
+def send_whatsapp(req: WhatsAppCampaignRequest, current_user: dict = Depends(get_current_user)):
+    file_path, group_name = resolve_any_recipient_group(req.recipient_group)
 
     if req.selected_contacts and len(req.selected_contacts) > 0:
         contacts = req.selected_contacts
     else:
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Recipients source dataset file not found.")
+
+        try:
+            df = pd.read_csv(file_path, dtype=str) if file_path.endswith(".csv") else pd.read_excel(file_path, dtype=str)
+            df = clean_lead_df(df)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Failed to load lead group columns.")
+
+        phone_col = None
+        name_col = None
+        for c in df.columns:
+            if "phone" in c.lower() or "mobile" in c.lower() or "contact" in c.lower():
+                phone_col = c
+            if "name" in c.lower() or "title" in c.lower():
+                name_col = c
+
+        if not phone_col and len(df.columns) > 0:
+            phone_col = df.columns[0]
+
         contacts = []
         for _, row in df.iterrows():
-            p = str(row[phone_col]).strip() if pd.notna(row[phone_col]) else ""
+            p = str(row[phone_col]).strip() if phone_col and pd.notna(row[phone_col]) else ""
             n = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else "Customer"
-            if len(p) > 7:
+            if len(p) > 5:
                 contacts.append({"phone": p, "name": n})
 
     if not contacts:
@@ -1575,33 +1615,18 @@ def send_whatsapp(req: WhatsAppCampaignRequest, background_tasks: BackgroundTask
 
 @app.post("/api/marketing/send-email")
 def send_email(req: EmailCampaignRequest, current_user: dict = Depends(get_current_user)):
-    file_path = None
-    conn = get_db()
-    if req.recipient_group.startswith("dataset_"):
-        ds_id = req.recipient_group.replace("dataset_", "")
-        ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (ds_id,)).fetchone()
-        if ds:
-            file_path = resolve_dataset_file_path(ds["file_path"], int(ds_id))
-    elif req.recipient_group.startswith("job_"):
-        job_id = req.recipient_group.replace("job_", "")
-        jb = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
-        if jb:
-            file_path = jb["result_path"]
-            if file_path and not os.path.exists(file_path):
-                fn = os.path.basename(file_path.replace("\\", "/"))
-                if os.path.exists(os.path.join(SCRAPE_RESULTS_FOLDER, fn)):
-                    file_path = os.path.join(SCRAPE_RESULTS_FOLDER, fn)
-    conn.close()
+    file_path, group_name = resolve_any_recipient_group(req.recipient_group)
 
-    if not file_path or not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Lead file not found.")
-
-    try:
-        df = pd.read_csv(file_path) if file_path.endswith(".csv") else pd.read_excel(file_path)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to load file.")
-
-    target_count = len(req.selected_contacts) if req.selected_contacts and len(req.selected_contacts) > 0 else len(df)
+    if req.selected_contacts and len(req.selected_contacts) > 0:
+        target_count = len(req.selected_contacts)
+    else:
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Lead dataset file not found.")
+        try:
+            df = pd.read_csv(file_path) if file_path.endswith(".csv") else pd.read_excel(file_path)
+            target_count = len(df)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Failed to load file.")
 
     # Deduct 1 credit for email campaign
     conn = get_db()
@@ -1629,23 +1654,7 @@ def send_email(req: EmailCampaignRequest, current_user: dict = Depends(get_curre
 
 @app.get("/api/marketing/recipient-contacts")
 def get_recipient_contacts(recipient_group: str, current_user: dict = Depends(get_current_user)):
-    file_path = None
-    conn = get_db()
-    if recipient_group.startswith("dataset_"):
-        ds_id = recipient_group.replace("dataset_", "")
-        ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (ds_id,)).fetchone()
-        if ds:
-            file_path = resolve_dataset_file_path(ds["file_path"], int(ds_id))
-    elif recipient_group.startswith("job_"):
-        job_id = recipient_group.replace("job_", "")
-        jb = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
-        if jb:
-            file_path = jb["result_path"]
-            if file_path and not os.path.exists(file_path):
-                fn = os.path.basename(file_path.replace("\\", "/"))
-                if os.path.exists(os.path.join(SCRAPE_RESULTS_FOLDER, fn)):
-                    file_path = os.path.join(SCRAPE_RESULTS_FOLDER, fn)
-    conn.close()
+    file_path, group_name = resolve_any_recipient_group(recipient_group)
 
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Recipient source data file not found.")
