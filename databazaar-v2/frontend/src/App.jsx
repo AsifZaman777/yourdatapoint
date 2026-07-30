@@ -127,26 +127,30 @@ export default function App() {
   const [scrapeRateLimit, setScrapeRateLimit] = useState(() => {
     const until = localStorage.getItem('scrapeRateLimitUntil');
     if (until) {
-      const remaining = Math.ceil((parseInt(until, 10) - Date.now()) / 1000);
-      return remaining > 0 ? remaining : 0;
+      const remaining = Math.max(0, Math.ceil((parseInt(until, 10) - Date.now()) / 1000));
+      return remaining;
     }
     return 0;
   });
 
   useEffect(() => {
-    let timerId = null;
-    if (scrapeRateLimit > 0) {
-      timerId = setInterval(() => {
-        setScrapeRateLimit((prev) => {
-          if (prev <= 1) {
-            localStorage.removeItem('scrapeRateLimitUntil');
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-  }, [scrapeRateLimit]);
+    const updateRateLimitTimer = () => {
+      const until = localStorage.getItem('scrapeRateLimitUntil');
+      if (until) {
+        const remaining = Math.max(0, Math.ceil((parseInt(until, 10) - Date.now()) / 1000));
+        setScrapeRateLimit(remaining);
+        if (remaining <= 0) {
+          localStorage.removeItem('scrapeRateLimitUntil');
+        }
+      } else {
+        setScrapeRateLimit(0);
+      }
+    };
+
+    updateRateLimitTimer();
+    const timerId = setInterval(updateRateLimitTimer, 1000);
+    return () => clearInterval(timerId);
+  }, []);
 
   // Dataset Requests Portal states
   const [reqCategoryTags, setReqCategoryTags] = useState([]);
@@ -394,6 +398,7 @@ export default function App() {
   const [activeJobLogs, setActiveJobLogs] = useState([]);
   const [liveMapImage, setLiveMapImage] = useState(null);
   const [autoScrollScraper, setAutoScrollScraper] = useState(true);
+  const [scraperSubTab, setScraperSubTab] = useState('console'); // 'console' or 'requests'
   const scraperTerminalRef = useRef(null);
   // Payment Module states
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -1283,6 +1288,7 @@ Please return ONLY the updated template text.`;
           setScrapeDiv(request.division || '');
           setScrapeDist(request.district || '');
           setScrapeArea(request.area || '');
+          setScraperSubTab('console');
         }
 
         setRequestActionModal(null);
@@ -1300,9 +1306,9 @@ Please return ONLY the updated template text.`;
   useEffect(() => {
     if (currentTab === 'scraper') {
       loadMyDatasetRequests();
+      loadJobs();
       if (user && (user.role === 'admin' || user.role === 'superadmin')) {
         loadAdminDatasetRequests();
-        loadJobs();
       }
     }
   }, [currentTab, token, user]);
@@ -2626,7 +2632,7 @@ Please return ONLY the updated template text.`;
                 <Database size={16} /> Datasets Catalog
               </div>
               <div className={`sidebar-item ${currentTab === 'scraper' ? 'active' : ''}`} onClick={() => { setCurrentTab('scraper'); }}>
-                <Search size={16} /> {user && (user.role === 'admin' || user.role === 'superadmin') ? 'Live Scraper Console' : 'Dataset Request Portal'}
+                <Search size={16} /> Live Scraper Console
               </div>
               <div className={`sidebar-item ${currentTab === 'marketing' ? 'active' : ''}`} onClick={() => { setCurrentTab('marketing'); }}>
                 <Send size={16} /> Marketing Portal
@@ -3612,445 +3618,672 @@ Please return ONLY the updated template text.`;
         {currentTab === 'scraper' && (
           <div>
             {/* Header Banner */}
-            <div className="card glowing-panel" style={{ borderColor: '#06b6d4', marginBottom: '24px' }}>
+            <div className="card glowing-panel" style={{ borderColor: '#06b6d4', marginBottom: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
                   <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold', border: '1px solid rgba(6, 182, 212, 0.3)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                    <Search size={14} /> CUSTOM DATASET REQUEST PORTAL
+                    <Search size={14} /> REAL-TIME MAPS SCRAPER & DATASET PORTAL
                   </span>
                   <h2 style={{ color: '#fff', marginTop: '10px', marginBottom: '6px' }}>
-                    {user && (user.role === 'admin' || user.role === 'superadmin') ? 'Live Scraper & User Requests Console' : 'Request Custom Lead Datasets'}
+                    Live Google Maps Scraper & Custom Dataset Requests
                   </h2>
                   <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '0.9rem' }}>
                     {user && (user.role === 'admin' || user.role === 'superadmin')
-                      ? 'Launch direct server background scrapes or fulfill user dataset requests to drop fresh leads into the Public Catalog.'
-                      : 'To preserve platform server resources, submit your required lead dataset parameters below. Our data team will extract and drop the dataset directly into the Public Catalog.'}
+                      ? 'Launch direct server background Google Maps scrapes (Free for Admin) or fulfill user dataset requests.'
+                      : 'Launch automated live Google Maps scrapes directly (20 Credits/Query) or submit custom dataset requests to our data team.'}
                   </p>
                 </div>
+                {user && (user.role !== 'admin' && user.role !== 'superadmin') && (
+                  <div style={{ background: 'rgba(15, 23, 42, 0.8)', padding: '10px 18px', borderRadius: '12px', border: '1px solid rgba(6, 182, 212, 0.3)', textAlign: 'right', boxShadow: '0 0 15px rgba(6, 182, 212, 0.15)' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Available Credits Balance</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#eab308' }}>⚡ {user.credits || 0} Credits</div>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* IF REGULAR USER: SHOW REQUEST FORM & MY REQUESTS */}
-            {(!user || (user.role !== 'admin' && user.role !== 'superadmin')) ? (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '28px' }}>
-                {/* Form Card */}
+            {/* Sub-tabs Navigation */}
+            <div className="tabs" style={{ marginBottom: '24px' }}>
+              <button
+                className={`tab-btn ${scraperSubTab === 'console' ? 'active' : ''}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px' }}
+                onClick={() => setScraperSubTab('console')}
+              >
+                <Search size={16} /> ⚡ Live Scraper Console
+              </button>
+              <button
+                className={`tab-btn ${scraperSubTab === 'requests' ? 'active' : ''}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px' }}
+                onClick={() => setScraperSubTab('requests')}
+              >
+                <Send size={16} /> 📋 Custom Dataset Requests
+              </button>
+            </div>
+
+            {/* SUB-TAB 1: LIVE SCRAPER CONSOLE */}
+            {scraperSubTab === 'console' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.1fr', gap: '28px' }}>
+                {/* Left: Scraper Input Form */}
                 <div className="card glowing-panel">
-                  <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Send size={18} style={{ color: '#06b6d4' }} /> Submit Custom Dataset Request
+                  <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Search size={18} style={{ color: '#06b6d4' }} /> Initialize Live Maps Scraper
                   </h3>
-                  <form onSubmit={handleSubmitDatasetRequest}>
+                  <form onSubmit={handleStartScrape}>
                     <div className="form-group">
                       <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>Required Data / Search Query Tags *</span>
+                        <span>Search Queries *</span>
                         <span style={{ fontSize: '0.75rem', color: '#06b6d4', fontWeight: 'bold' }}>
-                          {reqCategoryTags.length} Tag{reqCategoryTags.length !== 1 ? 's' : ''} Added
+                          {user && (user.role === 'admin' || user.role === 'superadmin') ? 'Free (Admin)' : '20 Credits / Query'}
                         </span>
                       </label>
-
-                      {/* Interactive Tag Input Box */}
-                      <div
-                        style={{
-                          border: '1px solid var(--border-subtle)',
-                          background: 'rgba(15, 23, 42, 0.6)',
-                          padding: '6px 10px',
-                          borderRadius: '8px',
-                          display: 'flex',
-                          flexWrap: 'wrap',
-                          gap: '6px',
-                          alignItems: 'center',
-                          minHeight: '44px',
-                          cursor: 'text'
-                        }}
-                        onClick={() => {
-                          const inputEl = document.getElementById('req-category-tag-input');
-                          if (inputEl) inputEl.focus();
-                        }}
-                      >
-                        {reqCategoryTags.map((tag, idx) => (
-                          <span
-                            key={idx}
-                            style={{
-                              background: 'rgba(6, 182, 212, 0.15)',
-                              border: '1px solid rgba(6, 182, 212, 0.4)',
-                              color: '#06b6d4',
-                              padding: '3px 10px',
-                              borderRadius: '16px',
-                              fontSize: '0.8rem',
-                              fontWeight: 'bold',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              boxShadow: '0 0 10px rgba(6, 182, 212, 0.2)'
+                      {scrapeQueries.map((q, idx) => (
+                        <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                          <input
+                            type="text"
+                            className="form-control"
+                            placeholder={`Query #${idx + 1} (e.g. Pharmacy Mirpur Dhaka)`}
+                            value={q}
+                            onChange={(e) => {
+                              const newQ = [...scrapeQueries];
+                              newQ[idx] = e.target.value;
+                              setScrapeQueries(newQ);
                             }}
-                          >
-                            {tag}
-                            <X
-                              size={13}
-                              style={{ cursor: 'pointer', color: '#ef4444' }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setReqCategoryTags(reqCategoryTags.filter((_, i) => i !== idx));
+                            required={idx === 0 && !scrapeQuery}
+                          />
+                          {idx === scrapeQueries.length - 1 ? (
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{ padding: '0 14px', fontWeight: 'bold', fontSize: '1.2rem', minWidth: '42px' }}
+                              onClick={() => setScrapeQueries([...scrapeQueries, ''])}
+                              title="Add another query"
+                            >+</button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn btn-danger"
+                              style={{ padding: '0 14px', fontWeight: 'bold', fontSize: '1.2rem', minWidth: '42px' }}
+                              onClick={() => {
+                                const newQ = scrapeQueries.filter((_, i) => i !== idx);
+                                setScrapeQueries(newQ.length ? newQ : ['']);
                               }}
-                            />
-                          </span>
-                        ))}
-
-                        <input
-                          id="req-category-tag-input"
-                          type="text"
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            outline: 'none',
-                            color: '#fff',
-                            flex: '1',
-                            minWidth: '150px',
-                            fontSize: '0.85rem',
-                            padding: '4px'
-                          }}
-                          placeholder={reqCategoryTags.length === 0 ? "Type query & press comma (,) or Enter..." : "Add another query tag..."}
-                          value={reqCategoryInput}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val.includes(',')) {
-                              const parts = val.split(',');
-                              const newTags = [...reqCategoryTags];
-                              parts.forEach(p => {
-                                const trimmed = p.trim();
-                                if (trimmed && !newTags.includes(trimmed)) newTags.push(trimmed);
-                              });
-                              setReqCategoryTags(newTags);
-                              setReqCategoryInput('');
-                            } else {
-                              setReqCategoryInput(val);
-                            }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              const trimmed = reqCategoryInput.trim();
-                              if (trimmed && !reqCategoryTags.includes(trimmed)) {
-                                setReqCategoryTags([...reqCategoryTags, trimmed]);
-                                setReqCategoryInput('');
-                              }
-                            } else if (e.key === 'Backspace' && !reqCategoryInput && reqCategoryTags.length > 0) {
-                              setReqCategoryTags(reqCategoryTags.slice(0, -1));
-                            }
-                          }}
-                          onBlur={() => {
-                            const trimmed = reqCategoryInput.trim();
-                            if (trimmed && !reqCategoryTags.includes(trimmed)) {
-                              setReqCategoryTags([...reqCategoryTags, trimmed]);
-                              setReqCategoryInput('');
-                            }
-                          }}
-                        />
-                      </div>
-
-                      <small style={{ color: '#94a3b8', fontSize: '0.75rem', marginTop: '6px', display: 'block' }}>
-                        ⚡ Type any search category (e.g. <i>Pharmacy</i>) and press <b>comma (,)</b> or <b>Enter</b> to convert it into a tag badge!
-                      </small>
+                              title="Remove query"
+                            >×</button>
+                          )}
+                        </div>
+                      ))}
                     </div>
 
                     <div className="form-group">
                       <label>Division</label>
-                      <select className="form-control" value={reqDivision} onChange={(e) => { setReqDivision(e.target.value); setReqDistrict(''); setReqArea(''); }}>
+                      <select className="form-control" value={scrapeDiv} onChange={(e) => { setScrapeDiv(e.target.value); setScrapeDist(''); setScrapeArea(''); }}>
                         <option value="">-- Select Division --</option>
                         {regionsConfig && Object.keys(regionsConfig).map((div, i) => (
                           <option key={i} value={div}>{div}</option>
                         ))}
                         <option value="Other">Other / Custom...</option>
                       </select>
-                      {reqDivision === 'Other' && (
-                        <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom division..." value={reqDivisionCustom} onChange={(e) => setReqDivisionCustom(e.target.value)} />
+                      {scrapeDiv === 'Other' && (
+                        <input
+                          type="text"
+                          className="form-control"
+                          style={{ marginTop: '8px' }}
+                          placeholder="Type custom division..."
+                          value={scrapeDivCustom}
+                          onChange={(e) => setScrapeDivCustom(e.target.value)}
+                        />
                       )}
                     </div>
 
                     <div className="form-group">
                       <label>District</label>
-                      <select className="form-control" value={reqDistrict} onChange={(e) => { setReqDistrict(e.target.value); setReqArea(''); }} disabled={!reqDivision && reqDivision !== 'Other'}>
+                      <select className="form-control" value={scrapeDist} onChange={(e) => { setScrapeDist(e.target.value); setScrapeArea(''); }} disabled={!scrapeDiv && scrapeDiv !== 'Other'}>
                         <option value="">-- Select District --</option>
-                        {regionsConfig && reqDivision && regionsConfig[reqDivision] && Object.keys(regionsConfig[reqDivision]).map((dist, i) => (
+                        {regionsConfig && scrapeDiv && regionsConfig[scrapeDiv] && Object.keys(regionsConfig[scrapeDiv]).map((dist, i) => (
                           <option key={i} value={dist}>{dist}</option>
                         ))}
                         <option value="Other">Other / Custom...</option>
                       </select>
-                      {reqDistrict === 'Other' && (
-                        <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom district..." value={reqDistrictCustom} onChange={(e) => setReqDistrictCustom(e.target.value)} />
+                      {scrapeDist === 'Other' && (
+                        <input
+                          type="text"
+                          className="form-control"
+                          style={{ marginTop: '8px' }}
+                          placeholder="Type custom district..."
+                          value={scrapeDistCustom}
+                          onChange={(e) => setScrapeDistCustom(e.target.value)}
+                        />
                       )}
                     </div>
 
                     <div className="form-group">
                       <label>Area / Sub-area</label>
-                      <select className="form-control" value={reqArea} onChange={(e) => setReqArea(e.target.value)} disabled={!reqDistrict && reqDistrict !== 'Other'}>
+                      <select className="form-control" value={scrapeArea} onChange={(e) => setScrapeArea(e.target.value)} disabled={!scrapeDist && scrapeDist !== 'Other'}>
                         <option value="">-- Select Area --</option>
-                        {regionsConfig && reqDivision && reqDistrict && regionsConfig[reqDivision]?.[reqDistrict] && regionsConfig[reqDivision][reqDistrict].map((area, i) => (
+                        {regionsConfig && scrapeDiv && scrapeDist && regionsConfig[scrapeDiv]?.[scrapeDist] && regionsConfig[scrapeDiv][scrapeDist].map((area, i) => (
                           <option key={i} value={area}>{area}</option>
                         ))}
                         <option value="Other">Other / Custom...</option>
                       </select>
-                      {reqArea === 'Other' && (
-                        <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom area..." value={reqAreaCustom} onChange={(e) => setReqAreaCustom(e.target.value)} />
+                      {scrapeArea === 'Other' && (
+                        <input
+                          type="text"
+                          className="form-control"
+                          style={{ marginTop: '8px' }}
+                          placeholder="Type custom area..."
+                          value={scrapeAreaCustom}
+                          onChange={(e) => setScrapeAreaCustom(e.target.value)}
+                        />
                       )}
                     </div>
 
-                    <div className="form-group">
-                      <label>Your Business Name / Industry</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="e.g. Ostad Marketing Agency / Software Solutions"
-                        value={reqBusinessName}
-                        onChange={(e) => setReqBusinessName(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <label>Contact Mobile / WhatsApp Number *</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="+8801700000000"
-                        value={reqPhone}
-                        onChange={(e) => setReqPhone(e.target.value)}
-                        required
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <label>Additional Notes / Specific Requirements</label>
-                      <textarea
-                        className="form-control"
-                        rows="2"
-                        placeholder="Any extra info (e.g. need 500+ verified mobile contacts)..."
-                        value={reqNotes}
-                        onChange={(e) => setReqNotes(e.target.value)}
-                      ></textarea>
-                    </div>
-
-                    <button className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }} type="submit" disabled={submittingReq}>
-                      {submittingReq ? 'Submitting...' : '🚀 Submit Dataset Request'}
-                    </button>
+                    {scrapeRateLimit > 0 ? (
+                      <button type="button" className="btn btn-secondary" style={{ width: '100%', marginTop: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'not-allowed', background: 'rgba(239, 68, 68, 0.12)', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444', fontWeight: 'bold' }} disabled>
+                        <Clock size={16} style={{ color: '#ef4444' }} /> Rate Limit Cooldown ({Math.floor(scrapeRateLimit / 60)}:{scrapeRateLimit % 60 < 10 ? '0' : ''}{scrapeRateLimit % 60} Remaining)
+                      </button>
+                    ) : (
+                      <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                        <Play size={15} /> {user && (user.role === 'admin' || user.role === 'superadmin') ? 'Launch Scraper (Free Admin)' : `Launch Live Scraper (Costs ${20 * scrapeQueries.filter(q => q.trim()).length || 20} Credits)`}
+                      </button>
+                    )}
                   </form>
                 </div>
 
-                {/* My Requests Card */}
+                {/* Right: Live Scraper Terminal & Debug Stream + Job History */}
                 <div className="card">
-                  <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <History size={18} style={{ color: '#a855f7' }} /> My Submitted Dataset Requests
-                  </h3>
-                  <div style={{ maxHeight: '550px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
-                    <table className="admin-table">
-                      <thead>
-                        <tr>
-                          <th>Req ID</th>
-                          <th>Category & Location</th>
-                          <th>Business & Phone</th>
-                          <th>Status</th>
-                          <th>Date</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {myDatasetRequests.map(r => (
-                          <tr key={r.id}>
-                            <td><strong>#{r.id}</strong></td>
-                            <td>
-                              <div><strong>{r.category_query}</strong></div>
-                              <small style={{ color: 'var(--text-muted)' }}>{[r.division, r.district, r.area].filter(Boolean).join(', ') || 'Bangladesh'}</small>
-                            </td>
-                            <td>
-                              <div>{r.business_name || '—'}</div>
-                              <small style={{ color: '#06b6d4', fontFamily: 'monospace' }}>{r.phone}</small>
-                            </td>
-                            <td>
-                              <span style={{
-                                padding: '3px 8px',
-                                borderRadius: '12px',
-                                fontSize: '0.75rem',
-                                fontWeight: 'bold',
-                                background: r.status === 'fulfilled' ? 'rgba(34, 197, 94, 0.15)' : r.status === 'rejected' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(234, 179, 8, 0.15)',
-                                color: r.status === 'fulfilled' ? '#22c55e' : r.status === 'rejected' ? '#ef4444' : '#eab308'
-                              }}>
-                                {r.status === 'fulfilled' ? '✓ Dropped in Catalog' : r.status === 'rejected' ? 'Rejected' : 'Pending'}
-                              </span>
-                            </td>
-                            <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                              {new Date(r.created_at).toLocaleDateString()}
-                            </td>
-                          </tr>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Bot size={18} style={{ color: '#a855f7' }} /> Scraper Execution Terminal</h3>
+                    <label className="toggle-switch" title="Show Live Map">
+                      <input type="checkbox" checked={showLiveDebug} onChange={(e) => setShowLiveDebug(e.target.checked)} />
+                      <span className="toggle-track"></span>
+                      <Search size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Debug View
+                    </label>
+                  </div>
+
+                  {activeJobId && (
+                    <div style={{ marginBottom: '20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                        <span className="led-status running"></span>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Active Job ID: #{activeJobId}</span>
+                      </div>
+
+                      {showLiveDebug && (
+                        <div className="map-viewer" style={{ marginBottom: '12px' }}>
+                          {liveMapImage ? (
+                            <img src={liveMapImage} alt="Live debug view" style={{ width: '100%', borderRadius: '4px' }} />
+                          ) : (
+                            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                              Waiting for live browser screenshot debug stream...
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="terminal-box" ref={scraperTerminalRef} style={{ position: 'relative' }}>
+                        <div style={{ position: 'sticky', top: 0, zIndex: 5, background: '#0a0e17', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '-12px -12px 10px -12px', borderRadius: '4px 4px 0 0' }}>
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'monospace', fontWeight: 'bold' }}>⚡ Execution Logs</span>
+                          <label style={{ fontSize: '0.75rem', color: '#cbd5e1', display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', margin: 0 }}>
+                            <input type="checkbox" checked={autoScrollScraper} onChange={(e) => setAutoScrollScraper(e.target.checked)} style={{ cursor: 'pointer', accentColor: '#06b6d4' }} />
+                            Auto-scroll Logs
+                          </label>
+                        </div>
+                        {activeJobLogs.map((log, index) => (
+                          <div key={index} className="terminal-line">{log}</div>
                         ))}
-                        {myDatasetRequests.length === 0 && (
-                          <tr>
-                            <td colSpan="5" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
-                              No dataset requests submitted yet. Use the portal form on the left to request custom lead datasets!
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '24px 0 12px 0' }}>
+                    <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', color: '#fff' }}>
+                      <Lock size={16} style={{ color: '#06b6d4' }} /> My Scraped Datasets & Job History
+                    </h4>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', background: 'rgba(6, 182, 212, 0.1)', padding: '2px 10px', borderRadius: '12px', border: '1px solid rgba(6, 182, 212, 0.2)' }}>
+                      {scraperJobs.length} Private Scrape{scraperJobs.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  <div style={{ maxHeight: '340px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '10px', padding: '6px', background: 'rgba(10, 14, 23, 0.4)' }}>
+                    {scraperJobs.map(job => (
+                      <div
+                        key={job.id}
+                        className="glowing-panel"
+                        style={{
+                          display: 'flex',
+                          justify: 'space-between',
+                          padding: '12px 14px',
+                          borderBottom: '1px solid var(--border-subtle)',
+                          alignItems: 'center',
+                          background: 'rgba(15, 23, 42, 0.6)',
+                          margin: '6px 0',
+                          borderRadius: '8px',
+                          flexWrap: 'wrap',
+                          gap: '12px'
+                        }}
+                      >
+                        <div style={{ flex: '1', minWidth: '200px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <span style={{ background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <Lock size={11} /> Private Dataset #{job.id}
+                            </span>
+                            <span style={{
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              fontSize: '0.7rem',
+                              fontWeight: 'bold',
+                              background: job.status === 'done' ? 'rgba(34, 197, 94, 0.15)' : job.status === 'failed' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                              color: job.status === 'done' ? '#22c55e' : job.status === 'failed' ? '#ef4444' : '#eab308'
+                            }}>
+                              {job.status === 'done' ? `✓ ${job.result_count || 0} Leads` : job.status === 'failed' ? '❌ Failed' : '⚡ Scraping...'}
+                            </span>
+                          </div>
+
+                          <div style={{ fontSize: '0.9rem', color: '#fff', fontWeight: 'bold', marginBottom: '2px' }}>
+                            {job.query}
+                          </div>
+
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                            <span>📍 {[job.division, job.district, job.area].filter(Boolean).join(', ') || 'Bangladesh'}</span>
+                            <span>📅 {job.created_at ? new Date(job.created_at).toLocaleDateString() : 'Just now'}</span>
+                          </div>
+                        </div>
+
+                        {/* Icon-Only Action Controls */}
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          {job.status === 'done' && (
+                            <>
+                            
+
+                              {/* Icon 2: Open in My Private Datasets Catalog */}
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderColor: 'rgba(6, 182, 212, 0.4)', background: 'rgba(6, 182, 212, 0.1)', color: '#06b6d4' }}
+                                title="Open in My Private Datasets Catalog"
+                                onClick={() => {
+                                  setCurrentTab('catalog');
+                                  setCatalogTab('private');
+                                  showToast(`Opened "${job.query}" in My Private Datasets Catalog!`, 'info');
+                                }}
+                              >
+                                   <Eye size={15} />
+                              </button>
+
+                              {/* Icon 3: Use in Marketing Portal */}
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(168, 85, 247, 0.15)', borderColor: 'rgba(168, 85, 247, 0.4)', color: '#c084fc' }}
+                                title="Use Leads in Marketing Portal (WhatsApp & Email)"
+                                onClick={() => {
+                                  setWaRecipientGroup(`job_${job.id}`);
+                                  setCurrentTab('marketing');
+                                  setMarketingSubTab('whatsapp');
+                                  showToast(`Loaded "${job.query}" leads into Marketing Portal!`, 'success');
+                                }}
+                              >
+                                <Send size={15} />
+                              </button>
+                            </>
+                          )}
+
+                          {/* Icon 6: Delete Job */}
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            title="Delete Private Scrape Job"
+                            onClick={() => handleDeleteJob(job.id, job.query)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {scraperJobs.length === 0 && (
+                      <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        No private scraper jobs initiated yet. Launch a scrape above to create your first private dataset!
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
-            ) : (
-              /* IF ADMIN / SUPERADMIN: SHOW LIVE SCRAPER + ADMIN REQUEST MANAGER */
+            )}
+
+            {/* SUB-TAB 2: CUSTOM DATASET REQUESTS */}
+            {scraperSubTab === 'requests' && (
               <div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px' }}>
-                  {/* Left: Direct Admin Scraper */}
+                {/* IF ADMIN: SHOW ADMIN REQUEST MANAGER AT TOP */}
+                {user && (user.role === 'admin' || user.role === 'superadmin') ? (
+                  <div>
+                    <div className="card glowing-panel" style={{ marginBottom: '30px' }}>
+                      <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Send size={18} style={{ color: '#06b6d4' }} /> Custom Dataset Requests Manager (Admin View)
+                      </h3>
+                      <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
+                        <table className="admin-table">
+                          <thead>
+                            <tr>
+                              <th>Req ID</th>
+                              <th>User Email</th>
+                              <th>Category Queries</th>
+                              <th>Location</th>
+                              <th>Business & Phone</th>
+                              <th>Notes</th>
+                              <th>Status</th>
+                              <th>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminDatasetRequests.map(r => (
+                              <tr key={r.id}>
+                                <td><strong>#{r.id}</strong></td>
+                                <td><span style={{ fontSize: '0.85rem' }}>{r.email}</span></td>
+                                <td><strong style={{ color: '#06b6d4' }}>{r.category_query}</strong></td>
+                                <td style={{ fontSize: '0.85rem' }}>{[r.division, r.district, r.area].filter(Boolean).join(', ') || 'All BD'}</td>
+                                <td>
+                                  <div>{r.business_name || '—'}</div>
+                                  <small style={{ color: 'var(--text-muted)' }}>{r.phone}</small>
+                                </td>
+                                <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.notes || '—'}</td>
+                                <td>
+                                  <span style={{
+                                    padding: '3px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 'bold',
+                                    background: r.status === 'fulfilled' ? 'rgba(34, 197, 94, 0.15)' : r.status === 'rejected' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                                    color: r.status === 'fulfilled' ? '#22c55e' : r.status === 'rejected' ? '#ef4444' : '#eab308'
+                                  }}>
+                                    {r.status}
+                                  </span>
+                                </td>
+                                <td>
+                                  {r.status === 'pending' && (
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                      <button className="btn btn-primary btn-sm" title="Pre-fill Admin Scraper to fulfill" onClick={() => handleFulfillDatasetRequest(r)}>
+                                        Fulfill Scrape
+                                      </button>
+                                      <button className="btn btn-danger btn-sm" title="Reject Request" onClick={() => handleRejectDatasetRequest(r.id)}>
+                                        Reject
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                            {adminDatasetRequests.length === 0 && (
+                              <tr>
+                                <td colSpan="8" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                                  No pending dataset requests submitted by users yet.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* USER OR ADMIN SUBMIT REQUEST FORM & MY REQUESTS */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '28px' }}>
+                  {/* Form Card */}
                   <div className="card glowing-panel">
-                    <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Search size={18} style={{ color: '#06b6d4' }} /> Initialize Admin Maps Scraper
+                    <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Send size={18} style={{ color: '#06b6d4' }} /> Submit Custom Dataset Request
                     </h3>
-                    <form onSubmit={handleStartScrape}>
+                    <form onSubmit={handleSubmitDatasetRequest}>
                       <div className="form-group">
                         <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span>Search Queries *</span>
-                          <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 'normal' }}>Combined into 1 Private Dataset</span>
+                          <span>Required Data / Search Query Tags *</span>
+                          <span style={{ fontSize: '0.75rem', color: '#06b6d4', fontWeight: 'bold' }}>
+                            {reqCategoryTags.length} Tag{reqCategoryTags.length !== 1 ? 's' : ''} Added
+                          </span>
                         </label>
-                        {scrapeQueries.map((q, idx) => (
-                          <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                            <input
-                              type="text"
-                              className="form-control"
-                              placeholder={`Query #${idx + 1} (e.g. Pharmacy Mirpur Dhaka)`}
-                              value={q}
-                              onChange={(e) => {
-                                const newQ = [...scrapeQueries];
-                                newQ[idx] = e.target.value;
-                                setScrapeQueries(newQ);
+
+                        {/* Interactive Tag Input Box */}
+                        <div
+                          style={{
+                            border: '1px solid var(--border-subtle)',
+                            background: 'rgba(15, 23, 42, 0.6)',
+                            padding: '6px 10px',
+                            borderRadius: '8px',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '6px',
+                            alignItems: 'center',
+                            minHeight: '44px',
+                            cursor: 'text'
+                          }}
+                          onClick={() => {
+                            const inputEl = document.getElementById('req-category-tag-input');
+                            if (inputEl) inputEl.focus();
+                          }}
+                        >
+                          {reqCategoryTags.map((tag, idx) => (
+                            <span
+                              key={idx}
+                              style={{
+                                background: 'rgba(6, 182, 212, 0.15)',
+                                border: '1px solid rgba(6, 182, 212, 0.4)',
+                                color: '#06b6d4',
+                                padding: '3px 10px',
+                                borderRadius: '16px',
+                                fontSize: '0.8rem',
+                                fontWeight: 'bold',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                boxShadow: '0 0 10px rgba(6, 182, 212, 0.2)'
                               }}
-                              required={idx === 0 && !scrapeQuery}
-                            />
-                            {idx === scrapeQueries.length - 1 ? (
-                              <button
-                                type="button"
-                                className="btn btn-secondary"
-                                style={{ padding: '0 14px', fontWeight: 'bold', fontSize: '1.2rem', minWidth: '42px' }}
-                                onClick={() => setScrapeQueries([...scrapeQueries, ''])}
-                                title="Add query"
-                              >+</button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="btn btn-danger"
-                                style={{ padding: '0 14px', fontWeight: 'bold', fontSize: '1.2rem', minWidth: '42px' }}
-                                onClick={() => {
-                                  const newQ = scrapeQueries.filter((_, i) => i !== idx);
-                                  setScrapeQueries(newQ.length ? newQ : ['']);
+                            >
+                              {tag}
+                              <X
+                                size={13}
+                                style={{ cursor: 'pointer', color: '#ef4444' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setReqCategoryTags(reqCategoryTags.filter((_, i) => i !== idx));
                                 }}
-                                title="Remove query"
-                              >×</button>
-                            )}
-                          </div>
-                        ))}
+                              />
+                            </span>
+                          ))}
+
+                          <input
+                            id="req-category-tag-input"
+                            type="text"
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              outline: 'none',
+                              color: '#fff',
+                              flex: '1',
+                              minWidth: '150px',
+                              fontSize: '0.85rem',
+                              padding: '4px'
+                            }}
+                            placeholder={reqCategoryTags.length === 0 ? "Type query & press comma (,) or Enter..." : "Add another query tag..."}
+                            value={reqCategoryInput}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val.includes(',')) {
+                                const parts = val.split(',');
+                                const newTags = [...reqCategoryTags];
+                                parts.forEach(p => {
+                                  const trimmed = p.trim();
+                                  if (trimmed && !newTags.includes(trimmed)) newTags.push(trimmed);
+                                });
+                                setReqCategoryTags(newTags);
+                                setReqCategoryInput('');
+                              } else {
+                                setReqCategoryInput(val);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const trimmed = reqCategoryInput.trim();
+                                if (trimmed && !reqCategoryTags.includes(trimmed)) {
+                                  setReqCategoryTags([...reqCategoryTags, trimmed]);
+                                  setReqCategoryInput('');
+                                }
+                              } else if (e.key === 'Backspace' && !reqCategoryInput && reqCategoryTags.length > 0) {
+                                setReqCategoryTags(reqCategoryTags.slice(0, -1));
+                              }
+                            }}
+                            onBlur={() => {
+                              const trimmed = reqCategoryInput.trim();
+                              if (trimmed && !reqCategoryTags.includes(trimmed)) {
+                                setReqCategoryTags([...reqCategoryTags, trimmed]);
+                                setReqCategoryInput('');
+                              }
+                            }}
+                          />
+                        </div>
+
+                        <small style={{ color: '#94a3b8', fontSize: '0.75rem', marginTop: '6px', display: 'block' }}>
+                          ⚡ Type any search category (e.g. <i>Pharmacy</i>) and press <b>comma (,)</b> or <b>Enter</b> to convert it into a tag badge!
+                        </small>
                       </div>
 
                       <div className="form-group">
                         <label>Division</label>
-                        <select className="form-control" value={scrapeDiv} onChange={(e) => { setScrapeDiv(e.target.value); setScrapeDist(''); setScrapeArea(''); }}>
+                        <select className="form-control" value={reqDivision} onChange={(e) => { setReqDivision(e.target.value); setReqDistrict(''); setReqArea(''); }}>
                           <option value="">-- Select Division --</option>
                           {regionsConfig && Object.keys(regionsConfig).map((div, i) => (
                             <option key={i} value={div}>{div}</option>
                           ))}
                           <option value="Other">Other / Custom...</option>
                         </select>
+                        {reqDivision === 'Other' && (
+                          <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom division..." value={reqDivisionCustom} onChange={(e) => setReqDivisionCustom(e.target.value)} />
+                        )}
                       </div>
 
                       <div className="form-group">
                         <label>District</label>
-                        <select className="form-control" value={scrapeDist} onChange={(e) => { setScrapeDist(e.target.value); setScrapeArea(''); }} disabled={!scrapeDiv && scrapeDiv !== 'Other'}>
+                        <select className="form-control" value={reqDistrict} onChange={(e) => { setReqDistrict(e.target.value); setReqArea(''); }} disabled={!reqDivision && reqDivision !== 'Other'}>
                           <option value="">-- Select District --</option>
-                          {regionsConfig && scrapeDiv && regionsConfig[scrapeDiv] && Object.keys(regionsConfig[scrapeDiv]).map((dist, i) => (
+                          {regionsConfig && reqDivision && regionsConfig[reqDivision] && Object.keys(regionsConfig[reqDivision]).map((dist, i) => (
                             <option key={i} value={dist}>{dist}</option>
                           ))}
                           <option value="Other">Other / Custom...</option>
                         </select>
+                        {reqDistrict === 'Other' && (
+                          <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom district..." value={reqDistrictCustom} onChange={(e) => setReqDistrictCustom(e.target.value)} />
+                        )}
                       </div>
 
                       <div className="form-group">
                         <label>Area / Sub-area</label>
-                        <select className="form-control" value={scrapeArea} onChange={(e) => setScrapeArea(e.target.value)} disabled={!scrapeDist && scrapeDist !== 'Other'}>
+                        <select className="form-control" value={reqArea} onChange={(e) => setReqArea(e.target.value)} disabled={!reqDistrict && reqDistrict !== 'Other'}>
                           <option value="">-- Select Area --</option>
-                          {regionsConfig && scrapeDiv && scrapeDist && regionsConfig[scrapeDiv]?.[scrapeDist] && regionsConfig[scrapeDiv][scrapeDist].map((area, i) => (
+                          {regionsConfig && reqDivision && reqDistrict && regionsConfig[reqDivision]?.[reqDistrict] && regionsConfig[reqDivision][reqDistrict].map((area, i) => (
                             <option key={i} value={area}>{area}</option>
                           ))}
                           <option value="Other">Other / Custom...</option>
                         </select>
+                        {reqArea === 'Other' && (
+                          <input type="text" className="form-control" style={{ marginTop: '8px' }} placeholder="Type custom area..." value={reqAreaCustom} onChange={(e) => setReqAreaCustom(e.target.value)} />
+                        )}
                       </div>
 
-                      {scrapeRateLimit > 0 ? (
-                        <button type="button" className="btn btn-secondary" style={{ width: '100%', marginTop: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'not-allowed', background: 'rgba(239, 68, 68, 0.12)', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444', fontWeight: 'bold' }} disabled>
-                          <Clock size={16} style={{ color: '#ef4444' }} /> Rate Limit Cooldown ({Math.floor(scrapeRateLimit / 60)}:{scrapeRateLimit % 60 < 10 ? '0' : ''}{scrapeRateLimit % 60} Remaining)
-                        </button>
-                      ) : (
-                        <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                          <Play size={15} /> Launch Admin Scraper
-                        </button>
-                      )}
+                      <div className="form-group">
+                        <label>Your Business Name / Industry</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="e.g. Ostad Marketing Agency / Software Solutions"
+                          value={reqBusinessName}
+                          onChange={(e) => setReqBusinessName(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Contact Mobile / WhatsApp Number *</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="+8801700000000"
+                          value={reqPhone}
+                          onChange={(e) => setReqPhone(e.target.value)}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Additional Notes / Specific Requirements</label>
+                        <textarea
+                          className="form-control"
+                          rows="2"
+                          placeholder="Any extra info (e.g. need 500+ verified mobile contacts)..."
+                          value={reqNotes}
+                          onChange={(e) => setReqNotes(e.target.value)}
+                        ></textarea>
+                      </div>
+
+                      <button className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }} type="submit" disabled={submittingReq}>
+                        {submittingReq ? 'Submitting...' : '🚀 Submit Dataset Request'}
+                      </button>
                     </form>
                   </div>
 
-                  {/* Right: Live Scraper Terminal & Debug Stream */}
+                  {/* My Requests Card */}
                   <div className="card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                      <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Bot size={18} style={{ color: '#a855f7' }} /> Background Scraper Terminal</h3>
-                      <label className="toggle-switch" title="Show Live Map">
-                        <input type="checkbox" checked={showLiveDebug} onChange={(e) => setShowLiveDebug(e.target.checked)} />
-                        <span className="toggle-track"></span>
-                        <Search size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Debug View
-                      </label>
-                    </div>
-
-                    {activeJobId && (
-                      <div style={{ marginBottom: '20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                          <span className="led-status running"></span>
-                          <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Active Job ID: #{activeJobId}</span>
-                        </div>
-
-                        {showLiveDebug && (
-                          <div className="map-viewer" style={{ marginBottom: '12px' }}>
-                            {liveMapImage ? (
-                              <img src={liveMapImage} alt="Live debug view" style={{ width: '100%', borderRadius: '4px' }} />
-                            ) : (
-                              <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                                Waiting for live debug tool stream...
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <div className="terminal-box" ref={scraperTerminalRef} style={{ position: 'relative' }}>
-                          <div style={{ position: 'sticky', top: 0, zIndex: 5, background: '#0a0e17', padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '-12px -12px 10px -12px', borderRadius: '4px 4px 0 0' }}>
-                            <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'monospace', fontWeight: 'bold' }}>⚡ Execution Logs</span>
-                            <label style={{ fontSize: '0.75rem', color: '#cbd5e1', display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none', margin: 0 }}>
-                              <input type="checkbox" checked={autoScrollScraper} onChange={(e) => setAutoScrollScraper(e.target.checked)} style={{ cursor: 'pointer', accentColor: '#06b6d4' }} />
-                              Auto-scroll Logs
-                            </label>
-                          </div>
-                          {activeJobLogs.map((log, index) => (
-                            <div key={index} className="terminal-line">{log}</div>
+                    <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <History size={18} style={{ color: '#a855f7' }} /> My Submitted Dataset Requests
+                    </h3>
+                    <div style={{ maxHeight: '550px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
+                      <table className="admin-table">
+                        <thead>
+                          <tr>
+                            <th>Req ID</th>
+                            <th>Category & Location</th>
+                            <th>Business & Phone</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {myDatasetRequests.map(r => (
+                            <tr key={r.id}>
+                              <td><strong>#{r.id}</strong></td>
+                              <td>
+                                <div><strong>{r.category_query}</strong></div>
+                                <small style={{ color: 'var(--text-muted)' }}>{[r.division, r.district, r.area].filter(Boolean).join(', ') || 'Bangladesh'}</small>
+                              </td>
+                              <td>
+                                <div>{r.business_name || '—'}</div>
+                                <small style={{ color: '#06b6d4', fontFamily: 'monospace' }}>{r.phone}</small>
+                              </td>
+                              <td>
+                                <span style={{
+                                  padding: '3px 8px',
+                                  borderRadius: '12px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 'bold',
+                                  background: r.status === 'fulfilled' ? 'rgba(34, 197, 94, 0.15)' : r.status === 'rejected' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                                  color: r.status === 'fulfilled' ? '#22c55e' : r.status === 'rejected' ? '#ef4444' : '#eab308'
+                                }}>
+                                  {r.status === 'fulfilled' ? '✓ Dropped in Catalog' : r.status === 'rejected' ? 'Rejected' : 'Pending'}
+                                </span>
+                              </td>
+                              <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {new Date(r.created_at).toLocaleDateString()}
+                              </td>
+                            </tr>
                           ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <h4 style={{ margin: '20px 0 10px 0' }}>Job History & Scraped Data</h4>
-                    <div style={{ maxHeight: '220px', overflowY: 'auto', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '4px' }}>
-                      {scraperJobs.map(job => (
-                        <div key={job.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', alignItems: 'center', background: 'rgba(255,255,255,0.02)', margin: '4px 0', borderRadius: '6px' }}>
-                          <div>
-                            <div style={{ fontSize: '0.85rem' }}><strong>{job.query}</strong></div>
-                            <small style={{ color: 'var(--text-muted)' }}>Status: {job.status} | {job.result_count || 0} rows</small>
-                          </div>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            {job.status === 'done' && (
-                              <button className="btn btn-primary btn-sm" title="Promote to Public Catalog" onClick={() => { setPromoteJobId(job.id); setPromoteName(job.query); }}>
-                                <Database size={13} /> Drop to Catalog
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                          {myDatasetRequests.length === 0 && (
+                            <tr>
+                              <td colSpan="5" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                                No dataset requests submitted yet. Use the portal form on the left to request custom lead datasets!
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
