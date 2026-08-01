@@ -47,7 +47,7 @@ export default function DashboardLayout({
       <Sidebar onOpenPaymentModal={() => setPaymentModalOpen(true)} />
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto p-6 lg:p-10 space-y-6">
+      <main className="flex-1 overflow-y-auto p-6 pt-16 lg:pt-6 lg:p-10 space-y-6 min-w-0">
         {/* Admin Warning Banner for Logged-In User */}
         {user.warning_message && (
           <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 flex items-start gap-3 shadow-lg">

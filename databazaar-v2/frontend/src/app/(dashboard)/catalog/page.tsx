@@ -16,6 +16,7 @@ import { configApi } from "@/lib/api/config";
 import { useAuth } from "@/providers/auth-provider";
 import { useLanguage } from "@/providers/language-provider";
 import { toast } from "sonner";
+import { getApiErrorMessage } from "@/lib/utils";
 import type { Dataset, DatasetDetail, ScraperJob, RegionsConfig } from "@/lib/types";
 
 export default function CatalogPage() {
@@ -85,15 +86,21 @@ export default function CatalogPage() {
 
   // Open dataset details
   const [activeSearchQuery, setActiveSearchQuery] = useState("");
+  const [pageSize, setPageSize] = useState(25);
 
-  const handleOpenDetails = async (id: string | number, page = 1, searchQuery = activeSearchQuery) => {
+  const handleOpenDetails = async (
+    id: string | number,
+    page = 1,
+    limit = pageSize,
+    searchQuery = activeSearchQuery
+  ) => {
     setSelectedId(id);
     setActiveSearchQuery(searchQuery);
     try {
-      const res = await datasetsApi.detail(id, page, searchQuery);
+      const res = await datasetsApi.detail(id, page, limit, searchQuery);
       setDetail(res.data);
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Failed to load dataset details.");
+      toast.error(getApiErrorMessage(err, "Failed to load dataset details."));
     }
   };
 
@@ -106,7 +113,22 @@ export default function CatalogPage() {
       refreshProfile();
       handleOpenDetails(detail.dataset.id);
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Failed to unlock dataset.");
+      toast.error(getApiErrorMessage(err, "Failed to unlock dataset."));
+    }
+  };
+
+  const [deletePublicTarget, setDeletePublicTarget] = useState<Dataset | null>(null);
+
+  const confirmDeletePublic = async () => {
+    if (!deletePublicTarget) return;
+    try {
+      await datasetsApi.delete(deletePublicTarget.id);
+      toast.success("Public dataset deleted successfully!");
+      loadDatasets();
+    } catch (err: any) {
+      toast.error(getApiErrorMessage(err, "Failed to delete public dataset."));
+    } finally {
+      setDeletePublicTarget(null);
     }
   };
 
@@ -132,7 +154,7 @@ export default function CatalogPage() {
       toast.success(res.data.message || "Promotion requested!");
       loadPrivateJobs();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Promotion failed.");
+      toast.error(getApiErrorMessage(err, "Promotion failed."));
     } finally {
       setPromoteTarget(null);
     }
@@ -145,14 +167,19 @@ export default function CatalogPage() {
         detail={detail}
         token={token}
         user={user}
+        pageSize={pageSize}
         onBack={() => {
           setSelectedId(null);
           setDetail(null);
           setActiveSearchQuery("");
         }}
         onUnlock={handleUnlock}
-        onPageChange={(page) => handleOpenDetails(selectedId, page)}
-        onSearch={(sq) => handleOpenDetails(selectedId, 1, sq)}
+        onPageChange={(page) => handleOpenDetails(selectedId, page, pageSize, activeSearchQuery)}
+        onPageSizeChange={(newSize) => {
+          setPageSize(newSize);
+          handleOpenDetails(selectedId, 1, newSize, activeSearchQuery);
+        }}
+        onSearch={(sq) => handleOpenDetails(selectedId, 1, pageSize, sq)}
       />
     );
   }
@@ -199,7 +226,13 @@ export default function CatalogPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {datasets.map((ds) => (
-              <DatasetCard key={ds.id} dataset={ds} onView={(id) => handleOpenDetails(id)} />
+              <DatasetCard
+                key={ds.id}
+                dataset={ds}
+                isAdmin={isAdmin}
+                onView={(id) => handleOpenDetails(id)}
+                onDelete={(target) => setDeletePublicTarget(target)}
+              />
             ))}
 
             {datasets.length === 0 && (
@@ -235,6 +268,17 @@ export default function CatalogPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Public Dataset Delete Confirmation Modal */}
+      <ConfirmModal
+        open={!!deletePublicTarget}
+        onClose={() => setDeletePublicTarget(null)}
+        onConfirm={confirmDeletePublic}
+        title="Delete Public Dataset"
+        description={`Are you sure you want to delete the public dataset "${deletePublicTarget?.name}"? This action will permanently remove it from the public catalog.`}
+        confirmText="Delete Dataset"
+        isDanger
+      />
 
       {/* Delete Confirmation Modal */}
       <ConfirmModal

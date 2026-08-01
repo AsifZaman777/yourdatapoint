@@ -11,7 +11,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pandas as pd
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -435,7 +435,7 @@ def list_datasets(category: Optional[str] = None, division: Optional[str] = None
     conn.close()
     return [dict(r) for r in rows]
 
-def resolve_dataset_file_path(file_path: Optional[str], dataset_id: Optional[int] = None) -> Optional[str]:
+def resolve_dataset_file_path(file_path: Optional[str], dataset_id: Optional[Union[int, str]] = None) -> Optional[str]:
     if not file_path:
         return None
     if os.path.exists(file_path):
@@ -460,7 +460,7 @@ def resolve_dataset_file_path(file_path: Optional[str], dataset_id: Optional[int
     if found_path and dataset_id:
         try:
             conn = get_db()
-            conn.execute("UPDATE datasets SET file_path = ? WHERE id = ?", (found_path, dataset_id))
+            conn.execute("UPDATE datasets SET file_path = ? WHERE id = ?", (found_path, str(dataset_id)))
             conn.commit()
             conn.close()
         except Exception as e:
@@ -477,7 +477,7 @@ def resolve_any_recipient_group(recipient_group: str):
         ds_id = recipient_group.replace("dataset_", "")
         ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (ds_id,)).fetchone()
         if ds:
-            file_path = resolve_dataset_file_path(ds["file_path"], int(ds_id))
+            file_path = resolve_dataset_file_path(ds["file_path"], ds["id"])
             group_name = ds["name"]
     elif recipient_group.startswith("job_"):
         job_id = recipient_group.replace("job_", "")
@@ -488,7 +488,7 @@ def resolve_any_recipient_group(recipient_group: str):
     else:
         ds = conn.execute("SELECT * FROM datasets WHERE name = ? OR id = ?", (recipient_group, recipient_group)).fetchone()
         if ds:
-            file_path = resolve_dataset_file_path(ds["file_path"], int(ds["id"]))
+            file_path = resolve_dataset_file_path(ds["file_path"], ds["id"])
             group_name = ds["name"]
         else:
             jb = conn.execute("SELECT * FROM scrape_jobs WHERE query = ? OR id = ?", (recipient_group, recipient_group)).fetchone()
@@ -535,7 +535,8 @@ def clean_lead_df(df):
     return df
 
 @app.get("/api/datasets/{dataset_id}")
-def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, authorization: Optional[str] = Header(None)):
+def get_dataset(dataset_id: str, page: int = 1, limit: int = 25, search: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    page_size = max(1, min(1000, limit))
     conn = get_db()
     
     # Check if dataset_id is a private scrape job
@@ -565,8 +566,8 @@ def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, au
             df = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
 
         total_rows = len(df)
-        start_row = (page - 1) * 25
-        end_row = start_row + 25
+        start_row = (page - 1) * page_size
+        end_row = start_row + page_size
         raw_records = df.iloc[start_row:end_row].fillna("").to_dict(orient="records")
         leads = [{k: ("" if (v is None or str(v).lower() in ("nan", "none", "null")) else str(v)) for k, v in r.items()} for r in raw_records]
 
@@ -585,7 +586,9 @@ def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, au
             "leads": leads,
             "total_rows": total_rows,
             "page": page,
-            "pages_count": max(1, (total_rows + 24) // 25)
+            "current_page": page,
+            "page_size": page_size,
+            "pages_count": max(1, (total_rows + page_size - 1) // page_size)
         }
 
     # Standard public dataset lookup
@@ -594,7 +597,7 @@ def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, au
         conn.close()
         raise HTTPException(status_code=404, detail="Dataset not found.")
         
-    file_path = resolve_dataset_file_path(ds["file_path"], int(dataset_id))
+    file_path = resolve_dataset_file_path(ds["file_path"], ds["id"])
     if not file_path or not os.path.exists(file_path):
         conn.close()
         raise HTTPException(status_code=404, detail="Data file missing.")
@@ -645,8 +648,8 @@ def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, au
         raw_records = preview_df.to_dict(orient="records")
     else:
         # Show full paginated results
-        start_row = (page - 1) * 25
-        end_row = start_row + 25
+        start_row = (page - 1) * page_size
+        end_row = start_row + page_size
         raw_records = df.iloc[start_row:end_row].fillna("").to_dict(orient="records")
 
     leads = [{k: ("" if (v is None or str(v).lower() in ("nan", "none", "null")) else str(v)) for k, v in r.items()} for r in raw_records]
@@ -658,11 +661,16 @@ def get_dataset(dataset_id: str, page: int = 1, search: Optional[str] = None, au
         "leads": leads,
         "total_rows": total_rows,
         "page": page,
-        "pages_count": max(1, (total_rows + 24) // 25)
+        "current_page": page,
+        "page_size": page_size,
+        "pages_count": max(1, (total_rows + page_size - 1) // page_size)
     }
 
 @app.post("/api/datasets/{dataset_id}/unlock")
-def unlock_dataset(dataset_id: int, current_user: dict = Depends(get_current_user)):
+def unlock_dataset(dataset_id: str, current_user: dict = Depends(get_current_user)):
+    if str(dataset_id).startswith("job_"):
+        return {"success": True, "message": "Private scrape job datasets are automatically unlocked.", "credits": current_user["credits"]}
+
     conn = get_db()
     ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
     if not ds:
@@ -898,7 +906,7 @@ def admin_upload(
     return {"success": True, "message": "Dataset catalog file uploaded successfully."}
 
 @app.delete("/api/admin/datasets/{dataset_id}")
-def admin_delete_dataset(dataset_id: int, admin_user: dict = Depends(get_admin_user)):
+def admin_delete_dataset(dataset_id: str, admin_user: dict = Depends(get_admin_user)):
     conn = get_db()
     conn.execute("DELETE FROM datasets WHERE id = ?", (dataset_id,))
     conn.commit()

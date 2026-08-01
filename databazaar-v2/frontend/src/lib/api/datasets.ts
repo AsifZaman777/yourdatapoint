@@ -20,14 +20,17 @@ export const datasetsApi = {
     return apiClient.get<Dataset[]>(`/api/datasets?${params.toString()}`);
   },
 
-  detail: (id: string | number, page = 1, search = "") =>
+  detail: (id: string | number, page = 1, limit = 25, search = "") =>
     apiClient.get<DatasetDetail>(
-      `/api/datasets/${id}?page=${page}&search=${encodeURIComponent(search)}`
+      `/api/datasets/${id}?page=${Math.max(1, Math.floor(Number(page) || 1))}&limit=${limit}&search=${encodeURIComponent(search)}`
     ),
 
-  unlock: (id: number) =>
-    apiClient.post<{ message: string }>(`/api/datasets/${id}/unlock`),
+  unlock: (id: number | string) =>
+    apiClient.post<{ message: string; credits?: number }>(`/api/datasets/${id}/unlock`),
 
-  exportUrl: (id: number, format: string, token: string) =>
+  delete: (id: number | string) =>
+    apiClient.delete<{ message: string }>(`/api/admin/datasets/${id}`),
+
+  exportUrl: (id: number | string, format: string, token: string) =>
     `${apiClient.defaults.baseURL}/api/datasets/${id}/export?format=${format}&token=${token}`,
 };
