@@ -110,20 +110,30 @@ export interface CampaignLog {
 }
 
 export interface Campaign {
-  id: number;
-  type: string;
+  id: number | string;
+  type?: string;
+  campaign_type?: string;
   recipient_group: string;
   status: string;
-  total: number;
-  sent: number;
-  failed_count: number;
-  created_at: string;
+  total?: number;
+  total_count?: number;
+  sent?: number;
+  sent_count?: number;
+  failed_count?: number;
+  created_at?: string;
 }
 
 export interface DashboardStats {
   total_campaigns: number;
   total_sent: number;
+  total_contacts?: number;
+  total_remaining?: number;
   total_failed: number;
+  success_rate?: number;
+  active_count?: number;
+  whatsapp_count?: number;
+  email_count?: number;
+  status_counts?: Record<string, number>;
   campaigns: Campaign[];
 }
 
@@ -141,7 +151,7 @@ export interface PaymentPackage {
   name: string;
   credits: number;
   price_bdt: number;
-  price_per_credit_bdt: number;
+  price_per_credit_bdt?: number;
   popular: boolean;
   badge?: string;
   save_badge?: string;
@@ -239,4 +249,67 @@ export interface LogFileContent {
   date: string;
   content: string;
   lines: string[];
+}
+
+// ── Admin Dashboard ──
+export interface DashboardOverview {
+  user_stats: {
+    total_users: number;
+    role_counts: Record<string, number>;
+    banned_count: number;
+  };
+  payment_stats: {
+    total_payments: number;
+    status_counts: Record<string, number>;
+    total_revenue_bdt: number;
+    package_popularity: Record<string, number>;
+    monthly_revenue: Record<string, number>;
+  };
+  dataset_request_stats: {
+    total_requests: number;
+    status_counts: Record<string, number>;
+  };
+  scraper_stats: {
+    total_jobs: number;
+    running_jobs: number;
+    total_private_datasets: number;
+  };
+  catalog_stats: {
+    total_catalog_datasets: number;
+  };
+  users_with_datasets: UserDatasetSummary[];
+}
+
+export interface UserDatasetSummary {
+  user_id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  credits: number;
+  total_datasets: number;
+  completed_datasets: number;
+  total_rows: number;
+}
+
+export interface UserPrivateDataset {
+  id: number;
+  query: string;
+  division?: string;
+  district?: string;
+  area?: string;
+  status: string;
+  result_count?: number;
+  result_path?: string;
+  cost_credits?: number;
+  created_at?: string;
+  completed_at?: string;
+}
+
+export interface UserPrivateDatasetsResponse {
+  user: {
+    id: number;
+    email: string;
+    full_name: string;
+  };
+  datasets: UserPrivateDataset[];
 }

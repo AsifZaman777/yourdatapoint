@@ -29,7 +29,7 @@ interface DashboardStatsProps {
 
 export function DashboardStats({ stats, onRefresh }: DashboardStatsProps) {
   const [activeLogs, setActiveLogs] = useState<string[]>([]);
-  const [stoppingCampaignId, setStoppingCampaignId] = useState<string | null>(null);
+  const [stoppingCampaignId, setStoppingCampaignId] = useState<string | number | null>(null);
 
   const totalCampaigns = stats?.total_campaigns ?? 0;
   const totalSent = stats?.total_sent ?? 0;
@@ -60,14 +60,19 @@ export function DashboardStats({ stats, onRefresh }: DashboardStatsProps) {
         .campaignStatus(campId)
         .then((res) => {
           if (res.data && res.data.logs) {
-            setActiveLogs(res.data.logs.slice(-15).reverse());
+            const formattedLogs = res.data.logs.map((l: any) =>
+              typeof l === "string"
+                ? l
+                : `[${l.timestamp || ""}] ${l.name || ""} (${l.phone || l.email || ""}) — ${l.status || ""}`
+            );
+            setActiveLogs(formattedLogs.slice(-15).reverse());
           }
         })
         .catch(() => {});
     }
   }, [stats]);
 
-  const handleStopCampaign = async (campaignId: string) => {
+  const handleStopCampaign = async (campaignId: string | number) => {
     setStoppingCampaignId(campaignId);
     try {
       await marketingApi.stopCampaign(campaignId);

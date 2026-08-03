@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Settings, Upload, Inbox, Coins } from "lucide-react";
+import { Settings, Upload, Inbox, Coins, LayoutDashboard } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { AdminDashboard } from "@/components/admin/admin-dashboard";
 import { DatasetUploadForm } from "@/components/admin/dataset-upload-form";
 import { PromotionRequests } from "@/components/admin/promotion-requests";
 import { PaymentVerification } from "@/components/admin/payment-verification";
@@ -17,14 +18,20 @@ import type {
   DatasetRequest,
 } from "@/lib/types";
 
+import { useSearchParams } from "next/navigation";
+import { PackageSettings } from "@/components/admin/package-settings";
+
 interface AdminPageProps {
   initialTab?: string;
 }
 
-export default function AdminPage({ initialTab = "upload" }: AdminPageProps) {
+export default function AdminPage({ initialTab = "dashboard" }: AdminPageProps) {
   const { t } = useLanguage();
+  const searchParams = useSearchParams();
+  const queryTab = searchParams ? searchParams.get("tab") : null;
   const at = t.admin || {};
-  const [activeTab, setActiveTab] = useState(initialTab);
+
+  const [activeTab, setActiveTab] = useState(queryTab || initialTab);
   const [categoriesList, setCategoriesList] = useState<string[]>([]);
   const [regionsConfig, setRegionsConfig] = useState<RegionsConfig | null>(null);
 
@@ -33,8 +40,12 @@ export default function AdminPage({ initialTab = "upload" }: AdminPageProps) {
   const [datasetRequests, setDatasetRequests] = useState<DatasetRequest[]>([]);
 
   useEffect(() => {
-    setActiveTab(initialTab);
-  }, [initialTab]);
+    if (queryTab) {
+      setActiveTab(queryTab);
+    } else if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [queryTab, initialTab]);
 
   useEffect(() => {
     configApi.regions().then((r) => {
@@ -61,12 +72,18 @@ export default function AdminPage({ initialTab = "upload" }: AdminPageProps) {
       <div>
         <h1 className="text-2xl font-extrabold text-foreground">{at.title || "Admin Overview & Control Center"}</h1>
         <p className="text-xs text-muted-foreground mt-1">
-          {at.subtitle || "Manage dataset uploads, promotion approvals, customer payments, and gateway configurations"}
+          {at.subtitle || "Manage dataset uploads, promotion approvals, customer payments, package settings, and gateway configurations"}
         </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="bg-card/60 border border-border/40 p-1 flex-wrap h-auto">
+          <TabsTrigger value="dashboard" className="gap-2 text-xs font-semibold">
+            <LayoutDashboard className="h-4 w-4 text-primary" /> Dashboard
+          </TabsTrigger>
+          <TabsTrigger value="packages" className="gap-2 text-xs font-semibold">
+            <Coins className="h-4 w-4 text-amber-500" /> Package Settings
+          </TabsTrigger>
           <TabsTrigger value="upload" className="gap-2 text-xs font-semibold">
             <Upload className="h-4 w-4 text-cyan-400" /> {at.tabUpload || "Upload Dataset"}
           </TabsTrigger>
@@ -83,6 +100,16 @@ export default function AdminPage({ initialTab = "upload" }: AdminPageProps) {
             <Settings className="h-4 w-4 text-muted-foreground" /> {at.tabGateway || "Gateway Settings"}
           </TabsTrigger>
         </TabsList>
+
+        {/* TAB 0: DASHBOARD */}
+        <TabsContent value="dashboard" className="pt-4">
+          <AdminDashboard />
+        </TabsContent>
+
+        {/* TAB 1: PACKAGE SETTINGS */}
+        <TabsContent value="packages" className="pt-4">
+          <PackageSettings />
+        </TabsContent>
 
         {/* TAB 1: UPLOAD */}
         <TabsContent value="upload" className="pt-4">

@@ -88,7 +88,7 @@ export function DatasetDetailView({
   const [sorting, setSorting] = useState<SortingState>([]);
   const { dataset, leads, unlocked } = detail;
   const pages_count = Math.max(1, Number(detail.pages_count || 1));
-  const current_page = Math.max(1, Number(detail.current_page || detail.page || 1));
+  const current_page = Math.max(1, Number(detail.current_page || 1));
 
   const handleSearchSubmit = () => {
     onSearch(searchQuery);

@@ -103,7 +103,8 @@ function SidebarInner({
       icon: Settings,
       color: "text-cyan-400",
       items: [
-        { label: "Admin Overview", href: "/admin", icon: LayoutDashboard },
+        { label: "Admin Dashboard", href: "/admin", icon: LayoutDashboard },
+        { label: "Package Settings", href: "/admin/packages", icon: Coins, iconColor: "text-amber-500" },
         { label: "Dataset Requests", href: "/admin/requests", icon: Inbox, iconColor: "text-amber-500" },
         { label: "Gateway & QR Settings", href: "/admin/gateway", icon: Settings, iconColor: "text-cyan-500" },
       ],
@@ -122,11 +123,7 @@ function SidebarInner({
       color: "text-purple-400",
       items: [
         { label: "Datasets Catalog", href: "/catalog", icon: Database },
-        {
-          label: isAdmin ? "Live Scraper Console" : "Dataset Request Portal",
-          href: "/scraper",
-          icon: Search,
-        },
+        { label: "Live Scraper Console", href: "/scraper", icon: Search },
       ],
     },
     {
@@ -156,7 +153,7 @@ function SidebarInner({
       color: "text-primary",
       items: [
         { label: "Datasets Catalog", href: "/catalog", icon: Database },
-        { label: "Dataset Request Portal", href: "/scraper", icon: Search },
+        { label: "Live Scraper Console", href: "/scraper", icon: Search },
         { label: "Marketing Portal", href: "/marketing", icon: Send },
         { label: "Upgrade Package", href: "/upgrade", icon: Zap, iconColor: "text-amber-500" },
       ],
@@ -204,7 +201,7 @@ function SidebarInner({
     if (!collapsed) return link;
     return (
       <Tooltip key={item.href}>
-        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipTrigger>{link}</TooltipTrigger>
         <TooltipContent side="right">{item.label}</TooltipContent>
       </Tooltip>
     );
@@ -227,7 +224,7 @@ function SidebarInner({
         >
           {collapsed ? (
             <Tooltip>
-              <TooltipTrigger asChild>
+              <TooltipTrigger>
                 <Link href="/catalog" className="flex items-center justify-center">
                   <BarChart3 className="h-5 w-5 text-primary" />
                 </Link>
@@ -323,7 +320,7 @@ function SidebarInner({
           {collapsed ? (
             <>
               <Tooltip>
-                <TooltipTrigger asChild>
+                <TooltipTrigger>
                   <Button
                     size="icon"
                     onClick={onOpenPaymentModal}
@@ -338,7 +335,7 @@ function SidebarInner({
               </Tooltip>
 
               <Tooltip>
-                <TooltipTrigger asChild>
+                <TooltipTrigger>
                   <Button
                     variant="outline"
                     size="icon"

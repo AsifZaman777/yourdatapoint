@@ -5,6 +5,8 @@ import type {
   PromotionRequest,
   PaymentRequest,
   DatasetRequest,
+  DashboardOverview,
+  UserPrivateDatasetsResponse,
 } from "@/lib/types";
 
 export const adminApi = {
@@ -110,6 +112,31 @@ export const adminApi = {
   ) =>
     apiClient.post<{ message: string }>(
       `/api/requests/admin/${requestId}/status`,
+      data
+    ),
+
+  // ── Admin Dashboard Overview ──
+  getDashboardOverview: () =>
+    apiClient.get<DashboardOverview>("/api/admin/dashboard-overview"),
+
+  getUserPrivateDatasets: (userId: number) =>
+    apiClient.get<UserPrivateDatasetsResponse>(
+      `/api/admin/users/${userId}/private-datasets`
+    ),
+
+  deleteUserPrivateDataset: (userId: number, jobId: number) =>
+    apiClient.delete<{ success: boolean; message: string }>(
+      `/api/admin/users/${userId}/private-datasets/${jobId}`
+    ),
+
+  downloadUserPrivateDataset: (userId: number, jobId: number) =>
+    apiClient.get(`/api/admin/users/${userId}/private-datasets/${jobId}/download`, {
+      responseType: "blob",
+    }),
+
+  savePackageSettings: (data: { packages: any[]; custom_package?: any }) =>
+    apiClient.post<{ success: boolean; message: string }>(
+      "/api/admin/package-settings",
       data
     ),
 };

@@ -12,7 +12,7 @@ from email.mime.multipart import MIMEMultipart
 import pandas as pd
 from datetime import datetime
 from typing import Optional, Union
-from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -1528,6 +1528,38 @@ async def update_admin_payment_settings(
 
     return {"success": True, "message": "Payment gateway numbers, account types, and QR codes updated successfully!"}
 
+
+class SavePackagesPayload(BaseModel):
+    packages: list[dict]
+    custom_package: Optional[dict] = None
+
+@app.post("/api/admin/package-settings")
+def save_admin_package_settings(req: SavePackagesPayload, admin_user: dict = Depends(get_admin_user)):
+    if admin_user.get("role") not in ["admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Superadmin or Admin permission required.")
+
+    pkg_file = os.path.join(os.path.dirname(__file__), "packages.json")
+    try:
+        import json
+        save_data = {
+            "packages": req.packages,
+            "custom_package": req.custom_package or {
+                "name": "Custom Upgrade",
+                "price_per_credit_bdt": 10,
+                "min_credits": 10,
+                "max_credits": 5000,
+                "step": 10,
+                "description": "Select the exact credit amount your team requires:"
+            }
+        }
+        with open(pkg_file, "w", encoding="utf-8") as f:
+            json.dump(save_data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save package settings: {str(e)}")
+
+    return {"success": True, "message": "Package prices and features updated successfully!"}
+
+
 class PaymentRequestPayload(BaseModel):
     package_name: str
     credits_requested: int
@@ -2066,6 +2098,186 @@ def unregister_user(target_user_id: int, admin_user: dict = Depends(get_admin_us
     conn.commit()
     conn.close()
     return {"success": True, "message": f"User #{target_user_id} ({u['email']}) has been permanently unregistered and deleted from database."}
+
+# ── Admin Dashboard Overview Endpoint ─────────────────────
+
+@app.get("/api/admin/dashboard-overview")
+def admin_dashboard_overview(admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+
+    # 1. User Stats
+    users = conn.execute("SELECT id, email, full_name, role, credits, is_banned, created_at FROM users").fetchall()
+    users_list = [dict(u) for u in users]
+    total_users = len(users_list)
+    role_counts = {}
+    banned_count = 0
+    for u in users_list:
+        role_counts[u["role"]] = role_counts.get(u["role"], 0) + 1
+        if u.get("is_banned") == 1:
+            banned_count += 1
+
+    # 2. Payment Stats
+    payments = conn.execute("""
+        SELECT pr.*, u.email AS user_email, u.full_name AS user_name
+        FROM payment_requests pr
+        JOIN users u ON pr.user_id = u.id
+        ORDER BY pr.created_at DESC
+    """).fetchall()
+    payments_list = [dict(p) for p in payments]
+    payment_status_counts = {"pending": 0, "approved": 0, "rejected": 0}
+    total_revenue_bdt = 0
+    package_popularity = {}
+    monthly_revenue = {}
+    for p in payments_list:
+        s = p.get("status", "pending")
+        payment_status_counts[s] = payment_status_counts.get(s, 0) + 1
+        if s == "approved":
+            total_revenue_bdt += p.get("amount_bdt", 0)
+            # Monthly revenue aggregation
+            created = p.get("created_at", "")
+            if created and len(created) >= 7:
+                month_key = created[:7]  # YYYY-MM
+                monthly_revenue[month_key] = monthly_revenue.get(month_key, 0) + p.get("amount_bdt", 0)
+        pkg = p.get("package_name", "Unknown")
+        package_popularity[pkg] = package_popularity.get(pkg, 0) + 1
+
+    # 3. Dataset Request Stats
+    dataset_requests = conn.execute("SELECT status FROM dataset_requests").fetchall()
+    dr_status_counts = {"pending": 0, "fulfilled": 0, "rejected": 0}
+    for dr in dataset_requests:
+        s = dr["status"]
+        dr_status_counts[s] = dr_status_counts.get(s, 0) + 1
+
+    # 4. Scraper / Private Datasets Stats
+    scrape_jobs = conn.execute("""
+        SELECT sj.user_id, sj.status, sj.result_count, sj.result_path,
+               u.email, u.full_name, u.role AS user_role, u.credits AS user_credits
+        FROM scrape_jobs sj
+        JOIN users u ON sj.user_id = u.id
+    """).fetchall()
+    scrape_list = [dict(sj) for sj in scrape_jobs]
+    total_scrape_jobs = len(scrape_list)
+    running_jobs = len([sj for sj in scrape_list if sj["status"] == "running"])
+
+    # Per-user private dataset counts
+    user_dataset_map = {}
+    for sj in scrape_list:
+        uid = sj["user_id"]
+        if uid not in user_dataset_map:
+            user_dataset_map[uid] = {
+                "user_id": uid,
+                "email": sj["email"],
+                "full_name": sj["full_name"],
+                "role": sj.get("user_role", "user"),
+                "credits": sj.get("user_credits", 0),
+                "total_datasets": 0,
+                "completed_datasets": 0,
+                "total_rows": 0
+            }
+        user_dataset_map[uid]["total_datasets"] += 1
+        if sj["status"] == "done":
+            user_dataset_map[uid]["completed_datasets"] += 1
+            user_dataset_map[uid]["total_rows"] += sj.get("result_count", 0) or 0
+
+    users_with_datasets = sorted(user_dataset_map.values(), key=lambda x: x["total_datasets"], reverse=True)
+
+    # 5. Total catalog datasets
+    total_catalog = conn.execute("SELECT COUNT(*) as cnt FROM datasets WHERE is_active = 1").fetchone()["cnt"]
+
+    conn.close()
+
+    return {
+        "user_stats": {
+            "total_users": total_users,
+            "role_counts": role_counts,
+            "banned_count": banned_count,
+        },
+        "payment_stats": {
+            "total_payments": len(payments_list),
+            "status_counts": payment_status_counts,
+            "total_revenue_bdt": total_revenue_bdt,
+            "package_popularity": package_popularity,
+            "monthly_revenue": monthly_revenue,
+        },
+        "dataset_request_stats": {
+            "total_requests": len(dataset_requests),
+            "status_counts": dr_status_counts,
+        },
+        "scraper_stats": {
+            "total_jobs": total_scrape_jobs,
+            "running_jobs": running_jobs,
+            "total_private_datasets": len([sj for sj in scrape_list if sj["status"] == "done" and sj.get("result_path")]),
+        },
+        "catalog_stats": {
+            "total_catalog_datasets": total_catalog,
+        },
+        "users_with_datasets": users_with_datasets,
+    }
+
+
+@app.get("/api/admin/users/{user_id}/private-datasets")
+def get_user_private_datasets(user_id: int, admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    user = conn.execute("SELECT id, email, full_name FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    jobs = conn.execute("""
+        SELECT id, query, division, district, area, status, result_count, result_path, cost_credits, created_at, completed_at
+        FROM scrape_jobs WHERE user_id = ? ORDER BY created_at DESC
+    """, (user_id,)).fetchall()
+    conn.close()
+    return {
+        "user": dict(user),
+        "datasets": [dict(j) for j in jobs]
+    }
+
+
+@app.delete("/api/admin/users/{user_id}/private-datasets/{job_id}")
+def admin_delete_user_private_dataset(user_id: int, job_id: int, admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ? AND user_id = ?", (job_id, user_id)).fetchone()
+    if not job:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Private dataset job not found for this user.")
+
+    # Delete result file from disk
+    result_path = job["result_path"]
+    if result_path and os.path.exists(result_path):
+        try:
+            os.remove(result_path)
+        except Exception:
+            pass
+
+    # Delete related logs and the job record
+    conn.execute("DELETE FROM scrape_logs WHERE job_id = ?", (job_id,))
+    conn.execute("DELETE FROM scrape_jobs WHERE id = ?", (job_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": f"Private dataset job #{job_id} deleted successfully."}
+
+
+@app.get("/api/admin/users/{user_id}/private-datasets/{job_id}/download")
+def admin_download_user_private_dataset(user_id: int, job_id: int, admin_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ? AND user_id = ?", (job_id, user_id)).fetchone()
+    if not job:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Private dataset job not found for this user.")
+    conn.close()
+
+    result_path = job["result_path"]
+    if not result_path or not os.path.exists(result_path):
+        raise HTTPException(status_code=404, detail="Dataset file not found on server disk.")
+
+    filename = os.path.basename(result_path)
+    return FileResponse(
+        path=result_path,
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
 
 # ── Database Auto Initialize ──────────────────────────────
 
