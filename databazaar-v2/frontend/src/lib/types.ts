@@ -151,7 +151,7 @@ export interface PaymentPackage {
   name: string;
   credits: number;
   price_bdt: number;
-  price_per_credit_bdt: number;
+  price_per_credit_bdt?: number;
   popular: boolean;
   badge?: string;
   save_badge?: string;

@@ -11,7 +11,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pandas as pd
 from datetime import datetime
-from typing import Optional, Union
+from typing import Optional, Union, List, Dict, Any
 from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -1370,6 +1370,38 @@ async def update_admin_payment_settings(
     conn.close()
 
     return {"success": True, "message": "Payment gateway numbers, account types, and QR codes updated successfully!"}
+
+
+class SavePackagesPayload(BaseModel):
+    packages: list[dict]
+    custom_package: Optional[dict] = None
+
+@app.post("/api/admin/package-settings")
+def save_admin_package_settings(req: SavePackagesPayload, admin_user: dict = Depends(get_admin_user)):
+    if admin_user.get("role") not in ["admin", "superadmin"]:
+        raise HTTPException(status_code=403, detail="Superadmin or Admin permission required.")
+
+    pkg_file = os.path.join(os.path.dirname(__file__), "packages.json")
+    try:
+        import json
+        save_data = {
+            "packages": req.packages,
+            "custom_package": req.custom_package or {
+                "name": "Custom Upgrade",
+                "price_per_credit_bdt": 10,
+                "min_credits": 10,
+                "max_credits": 5000,
+                "step": 10,
+                "description": "Select the exact credit amount your team requires:"
+            }
+        }
+        with open(pkg_file, "w", encoding="utf-8") as f:
+            json.dump(save_data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save package settings: {str(e)}")
+
+    return {"success": True, "message": "Package prices and features updated successfully!"}
+
 
 class PaymentRequestPayload(BaseModel):
     package_name: str

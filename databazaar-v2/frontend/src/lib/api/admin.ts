@@ -133,4 +133,10 @@ export const adminApi = {
     apiClient.get(`/api/admin/users/${userId}/private-datasets/${jobId}/download`, {
       responseType: "blob",
     }),
+
+  savePackageSettings: (data: { packages: any[]; custom_package?: any }) =>
+    apiClient.post<{ success: boolean; message: string }>(
+      "/api/admin/package-settings",
+      data
+    ),
 };
