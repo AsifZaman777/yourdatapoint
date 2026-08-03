@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { UserCheck, ShieldAlert, AlertTriangle, Trash2, Coins } from "lucide-react";
+import { UserCheck, ShieldAlert, AlertTriangle, Trash2, Coins, Plus, Minus } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ConfirmModal } from "@/components/ui/modal-confirm";
-import { PromptModal } from "@/components/ui/modal-prompt";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -38,27 +40,40 @@ export function UserManagement({
   onOpenWarningModal,
 }: UserManagementProps) {
   // Modal target states
-  const [creditTarget, setCreditTarget] = useState<User | null>(null);
+  const [creditModalTarget, setCreditModalTarget] = useState<{ user: User; mode: "add" | "deduct" } | null>(null);
+  const [creditAmount, setCreditAmount] = useState<string>("50");
+  const [isSubmittingCredit, setIsSubmittingCredit] = useState(false);
+
   const [roleTarget, setRoleTarget] = useState<{ userId: number; role: string } | null>(null);
   const [banTarget, setBanTarget] = useState<User | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
 
-  const confirmAddCredits = async (amountStr: string) => {
-    if (!creditTarget || !amountStr) return;
-    const amount = parseInt(amountStr);
-    if (isNaN(amount) || amount === 0) {
-      toast.warning("Please enter a valid non-zero amount.");
+  const handleOpenCreditModal = (user: User, mode: "add" | "deduct") => {
+    setCreditModalTarget({ user, mode });
+    setCreditAmount(mode === "add" ? "50" : "10");
+  };
+
+  const confirmAdjustCredits = async () => {
+    if (!creditModalTarget) return;
+    const parsed = parseInt(creditAmount);
+    if (isNaN(parsed) || parsed <= 0) {
+      toast.warning("Please enter a valid positive credit number.");
       return;
     }
 
+    const finalAmount = creditModalTarget.mode === "add" ? parsed : -parsed;
+    setIsSubmittingCredit(true);
+
     try {
-      await adminApi.addCredits(creditTarget.id, amount);
-      toast.success(`Assigned ${amount} credits to ${creditTarget.email}!`);
+      await adminApi.addCredits(creditModalTarget.user.id, finalAmount);
+      const actionText = creditModalTarget.mode === "add" ? `Added ${parsed} credits to` : `Deducted ${parsed} credits from`;
+      toast.success(`${actionText} ${creditModalTarget.user.email}!`);
+      setCreditModalTarget(null);
       onRefresh();
     } catch {
-      toast.error("Failed to assign credits.");
+      toast.error("Failed to update user credit balance.");
     } finally {
-      setCreditTarget(null);
+      setIsSubmittingCredit(false);
     }
   };
 
@@ -109,6 +124,14 @@ export function UserManagement({
     }
   };
 
+  const calcNewBalance = () => {
+    if (!creditModalTarget) return 0;
+    const current = creditModalTarget.user.credits || 0;
+    const parsed = parseInt(creditAmount) || 0;
+    if (creditModalTarget.mode === "add") return current + parsed;
+    return Math.max(0, current - parsed);
+  };
+
   return (
     <Card className="glass-panel p-6">
       <CardContent className="p-0 space-y-4">
@@ -123,7 +146,7 @@ export function UserManagement({
                 <TableHead>Role</TableHead>
                 <TableHead>Credits Balance</TableHead>
                 <TableHead>Status / Warning</TableHead>
-                <TableHead className="w-48 text-right">Actions</TableHead>
+                <TableHead className="w-64 text-right">Actions (Add / Deduct Credits / Warning / Ban)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -168,17 +191,19 @@ export function UserManagement({
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end items-center gap-1">
+                    <div className="flex justify-end items-center gap-1.5">
+                      {/* ADD CREDITS BUTTON */}
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => setCreditTarget(u)}
-                        className="h-7 text-[11px] px-2 text-amber-500 border-amber-500/40 hover:bg-amber-500/10 gap-1"
-                        title="Add Usage Credits"
+                        onClick={() => handleOpenCreditModal(u, "add")}
+                        className="h-7 text-[11px] px-2 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10 gap-1 font-bold"
+                        title="Add Credits (+)"
                       >
-                        <Coins className="h-3 w-3" /> +CR
+                        CR
                       </Button>
 
+                      {/* WARNING BUTTON */}
                       <Button
                         size="sm"
                         variant="outline"
@@ -189,6 +214,7 @@ export function UserManagement({
                         <AlertTriangle className="h-3 w-3" /> Warning
                       </Button>
 
+                      {/* BAN BUTTON */}
                       <Button
                         size="sm"
                         variant={u.is_banned === 1 ? "outline" : "destructive"}
@@ -199,6 +225,7 @@ export function UserManagement({
                         {u.is_banned === 1 ? "Unban" : "Ban"}
                       </Button>
 
+                      {/* DELETE BUTTON */}
                       <Button
                         size="icon"
                         variant="ghost"
@@ -217,17 +244,100 @@ export function UserManagement({
         </div>
       </CardContent>
 
-      {/* Credit Prompt Modal */}
-      <PromptModal
-        open={!!creditTarget}
-        onClose={() => setCreditTarget(null)}
-        onConfirm={confirmAddCredits}
-        title={`Assign Credits to ${creditTarget?.email}`}
-        description={`Current balance: ${creditTarget?.credits || 0} CR. Enter the number of credits to assign:`}
-        defaultValue="50"
-        placeholder="Enter credit amount (e.g. 50)..."
-        confirmText="Assign Credits"
-      />
+      {/* Dedicated Credit Add / Deduct Modal */}
+      <Dialog open={!!creditModalTarget} onOpenChange={(v) => !v && setCreditModalTarget(null)}>
+        <DialogContent className="glass-panel border-border/40 sm:max-w-md p-6">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <Coins className="h-5 w-5 text-amber-500" />
+              <span>
+                {creditModalTarget?.mode === "add" ? "Add Usage Credits (+)" : "Deduct Usage Credits (-)"}
+              </span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Target Customer: <span className="text-foreground font-semibold">{creditModalTarget?.user.email}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Mode Switcher */}
+          <div className="flex bg-muted/40 p-1 rounded-lg gap-1 border border-border/40 my-2">
+            <button
+              type="button"
+              onClick={() => setCreditModalTarget((prev) => prev ? { ...prev, mode: "add" } : null)}
+              className={`flex-1 text-xs py-1.5 font-bold rounded-md transition-all flex items-center justify-center gap-1 ${creditModalTarget?.mode === "add"
+                ? "bg-emerald-600 text-white shadow"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
+            >
+              <Plus className="h-3.5 w-3.5" /> Add Credits (+)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCreditModalTarget((prev) => prev ? { ...prev, mode: "deduct" } : null)}
+              className={`flex-1 text-xs py-1.5 font-bold rounded-md transition-all flex items-center justify-center gap-1 ${creditModalTarget?.mode === "deduct"
+                ? "bg-rose-600 text-white shadow"
+                : "text-muted-foreground hover:text-foreground"
+                }`}
+            >
+              <Minus className="h-3.5 w-3.5" /> Deduct Credits (-)
+            </button>
+          </div>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Credit Amount *</Label>
+              <Input
+                type="number"
+                min="1"
+                value={creditAmount}
+                onChange={(e) => setCreditAmount(e.target.value)}
+                placeholder="Enter credit amount..."
+                className="text-xs h-9 font-mono"
+              />
+            </div>
+
+            {/* Live Balance Preview Box */}
+            <div className="p-3 rounded-lg border border-border/40 bg-black/40 text-xs space-y-1 font-mono">
+              <div className="flex justify-between text-muted-foreground">
+                <span>Current Balance:</span>
+                <span className="font-bold text-foreground">{creditModalTarget?.user.credits || 0} CR</span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Adjustment ({creditModalTarget?.mode === "add" ? "+" : "-"}):</span>
+                <span className={creditModalTarget?.mode === "add" ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                  {creditModalTarget?.mode === "add" ? "+" : "-"}{parseInt(creditAmount) || 0} CR
+                </span>
+              </div>
+              <div className="flex justify-between pt-1 border-t border-border/40 text-foreground font-bold">
+                <span>New Balance:</span>
+                <span className="text-amber-400">{calcNewBalance()} CR</span>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 pt-2 border-t border-border/40">
+            <Button variant="outline" size="sm" onClick={() => setCreditModalTarget(null)} className="text-xs">
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={isSubmittingCredit}
+              onClick={confirmAdjustCredits}
+              className={`text-xs font-bold text-white ${creditModalTarget?.mode === "add"
+                ? "bg-emerald-600 hover:bg-emerald-500"
+                : "bg-rose-600 hover:bg-rose-500"
+                }`}
+            >
+              {isSubmittingCredit
+                ? "Updating..."
+                : creditModalTarget?.mode === "add"
+                  ? "Confirm Add Credits"
+                  : "Confirm Deduct Credits"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Role Change Confirm Modal */}
       <ConfirmModal
@@ -255,8 +365,8 @@ export function UserManagement({
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDeleteUser}
-        title="Permanently Delete User Account"
-        description={`⚠️ Are you sure you want to PERMANENTLY DELETE user #${deleteTarget?.id} (${deleteTarget?.email})? This action cannot be undone.`}
+        title={`Permanently Delete User #${deleteTarget?.id}?`}
+        description={`This will permanently unregister and delete account ${deleteTarget?.email} from the database. This action CANNOT be undone.`}
         confirmText="Delete Account"
         isDanger
       />

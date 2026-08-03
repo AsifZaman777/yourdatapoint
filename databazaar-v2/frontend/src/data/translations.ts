@@ -291,7 +291,7 @@ export const TRANSLATIONS = {
       thCredits: "Credits Balance",
       thStatus: "Status / Warning",
       thActions: "Actions",
-      addCreditsBtn: "+CR",
+      addCreditsBtn: "CR",
       warningBtn: "Warning",
       banBtn: "Ban",
       unbanBtn: "Unban",

@@ -12,7 +12,7 @@ from email.mime.multipart import MIMEMultipart
 import pandas as pd
 from datetime import datetime
 from typing import Optional, Union
-from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -1969,19 +1969,24 @@ def get_all_users(admin_user: dict = Depends(get_admin_user)):
 @app.post("/api/admin/users/add-credits")
 def add_credits(req: CreditRequest, admin_user: dict = Depends(get_admin_user)):
     conn = get_db()
-    u = conn.execute("SELECT id FROM users WHERE id = ?", (req.user_id,)).fetchone()
+    u = conn.execute("SELECT id, credits FROM users WHERE id = ?", (req.user_id,)).fetchone()
     if not u:
         conn.close()
         raise HTTPException(status_code=404, detail="User account not found.")
 
-    conn.execute("UPDATE users SET credits = credits + ? WHERE id = ?", (req.amount, req.user_id))
+    new_balance = max(0, u["credits"] + req.amount)
+    conn.execute("UPDATE users SET credits = ? WHERE id = ?", (new_balance, req.user_id))
+    
+    tx_type = "add" if req.amount >= 0 else "deduct"
+    desc = f"Admin credit {'addition' if req.amount >= 0 else 'deduction'} ({'+' if req.amount >= 0 else ''}{req.amount} CR)"
+    
     conn.execute(
-        "INSERT INTO credit_transactions (user_id, amount, transaction_type, description) VALUES (?, ?, 'add', 'Admin balance adjustment')",
-        (req.user_id, req.amount)
+        "INSERT INTO credit_transactions (user_id, amount, transaction_type, description) VALUES (?, ?, ?, ?)",
+        (req.user_id, abs(req.amount), tx_type, desc)
     )
     conn.commit()
     conn.close()
-    return {"success": True}
+    return {"success": True, "new_balance": new_balance, "message": f"User balance updated to {new_balance} CR."}
 
 @app.patch("/api/admin/users/{target_user_id}")
 def update_user_admin(target_user_id: int, req: UpdateUserRequest, admin_user: dict = Depends(get_admin_user)):

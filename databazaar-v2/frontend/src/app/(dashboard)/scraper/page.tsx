@@ -8,13 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { ScraperForm } from "@/components/scraper/scraper-form";
 import { ScraperTerminal } from "@/components/scraper/scraper-terminal";
 import { DatasetRequestForm } from "@/components/scraper/dataset-request-form";
+import { JobHistory } from "@/components/scraper/job-history";
 import { configApi } from "@/lib/api/config";
 import { scraperApi } from "@/lib/api/scraper";
 import { requestsApi } from "@/lib/api/requests";
 import { useAuth } from "@/providers/auth-provider";
 import type { RegionsConfig, DatasetRequest, ScraperJob } from "@/lib/types";
-
-import { JobHistory } from "@/components/scraper/job-history";
 
 export default function ScraperPage() {
   const { isAdmin } = useAuth();
@@ -67,7 +66,7 @@ export default function ScraperPage() {
         const res = await scraperApi.jobStatus(jobId);
         setActiveLogs(res.data.logs);
 
-        if (res.data.job.status === "done" || res.data.job.status === "failed") {
+        if (res.data.job.status === "done" || res.data.job.status === "failed" || res.data.job.status === "stopped") {
           if (pollTimerRef.current) clearInterval(pollTimerRef.current);
           scraperApi.listJobs().then((r) => setRecentJobs(r.data)).catch(() => { });
         }
@@ -131,89 +130,78 @@ export default function ScraperPage() {
             <div className="lg:col-span-6">
               <ScraperTerminal
                 logs={activeLogs}
-                liveImage={liveImage}
                 activeJobId={activeJobId}
               />
             </div>
           </div>
-        </TabsContent>
-        <div className="lg:col-span-6">
-          <ScraperTerminal
-            logs={activeLogs}
+
+          {/* Scraper Job History & Private Datasets */}
+          <JobHistory
+            jobs={recentJobs}
+            onRefresh={refreshJobs}
             activeJobId={activeJobId}
           />
-        </div>
-    </div>
+        </TabsContent>
 
-            {/* Scraper Job History & Private Datasets */ }
-  <JobHistory
-    jobs={recentJobs}
-    onRefresh={refreshJobs}
-    activeJobId={activeJobId}
-  />
-          </TabsContent >
-        )
-}
-
-{/* TAB: DATASET REQUEST PORTAL */ }
-<TabsContent value="request" className="space-y-6 pt-4">
-  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-    <div className="lg:col-span-6">
-      <DatasetRequestForm
-        regionsConfig={regionsConfig}
-        onRequestSubmitted={loadRequests}
-      />
-    </div>
-
-    {/* Requests History List */}
-    <div className="lg:col-span-6 space-y-4">
-      <h3 className="text-sm font-bold text-foreground">Your Submitted Dataset Requests</h3>
-      <div className="space-y-3">
-        {myRequests.map((req) => (
-          <Card key={req.id} className="p-4 glass-panel space-y-2">
-            <div className="flex justify-between items-start">
-              <div className="space-y-0.5">
-                <div className="font-bold text-sm text-foreground">{req.category_query}</div>
-                <div className="text-xs text-muted-foreground">
-                  Location: {[req.division, req.district, req.area].filter(Boolean).join(", ") || "Bangladesh"}
-                </div>
-              </div>
-
-              {req.status === "pending" && (
-                <Badge variant="outline" className="border-amber-500/40 text-amber-500 gap-1 text-[10px]">
-                  <Clock className="h-3 w-3" /> Pending Scrape
-                </Badge>
-              )}
-              {req.status === "fulfilled" && (
-                <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 gap-1 text-[10px]">
-                  <CheckCircle2 className="h-3 w-3" /> Fulfilled in Catalog
-                </Badge>
-              )}
-              {req.status === "rejected" && (
-                <Badge variant="outline" className="border-destructive/40 text-destructive gap-1 text-[10px]">
-                  <XCircle className="h-3 w-3" /> Unable to Fulfill
-                </Badge>
-              )}
+        {/* TAB: DATASET REQUEST PORTAL */}
+        <TabsContent value="request" className="space-y-6 pt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="lg:col-span-6">
+              <DatasetRequestForm
+                regionsConfig={regionsConfig}
+                onRequestSubmitted={loadRequests}
+              />
             </div>
 
-            {req.additional_notes && (
-              <div className="text-xs text-muted-foreground italic pt-1 border-t border-border/40">
-                Notes: "{req.additional_notes}"
-              </div>
-            )}
-          </Card>
-        ))}
+            {/* Requests History List */}
+            <div className="lg:col-span-6 space-y-4">
+              <h3 className="text-sm font-bold text-foreground">Your Submitted Dataset Requests</h3>
+              <div className="space-y-3">
+                {myRequests.map((req) => (
+                  <Card key={req.id} className="p-4 glass-panel space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-0.5">
+                        <div className="font-bold text-sm text-foreground">{req.category_query}</div>
+                        <div className="text-xs text-muted-foreground">
+                          Location: {[req.division, req.district, req.area].filter(Boolean).join(", ") || "Bangladesh"}
+                        </div>
+                      </div>
 
-        {myRequests.length === 0 && (
-          <div className="text-center py-12 text-xs text-muted-foreground glass-panel">
-            No custom dataset requests submitted yet. Use the form on the left to request custom lead scraping.
+                      {req.status === "pending" && (
+                        <Badge variant="outline" className="border-amber-500/40 text-amber-500 gap-1 text-[10px]">
+                          <Clock className="h-3 w-3" /> Pending Scrape
+                        </Badge>
+                      )}
+                      {req.status === "fulfilled" && (
+                        <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 gap-1 text-[10px]">
+                          <CheckCircle2 className="h-3 w-3" /> Fulfilled in Catalog
+                        </Badge>
+                      )}
+                      {req.status === "rejected" && (
+                        <Badge variant="outline" className="border-destructive/40 text-destructive gap-1 text-[10px]">
+                          <XCircle className="h-3 w-3" /> Unable to Fulfill
+                        </Badge>
+                      )}
+                    </div>
+
+                    {req.additional_notes && (
+                      <div className="text-xs text-muted-foreground italic pt-1 border-t border-border/40">
+                        Notes: "{req.additional_notes}"
+                      </div>
+                    )}
+                  </Card>
+                ))}
+
+                {myRequests.length === 0 && (
+                  <div className="text-center py-12 text-xs text-muted-foreground glass-panel">
+                    No custom dataset requests submitted yet. Use the form on the left to request custom lead scraping.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
-  </div>
-</TabsContent>
-      </Tabs >
-    </div >
   );
 }
