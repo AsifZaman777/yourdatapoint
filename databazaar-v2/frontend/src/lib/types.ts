@@ -110,20 +110,30 @@ export interface CampaignLog {
 }
 
 export interface Campaign {
-  id: number;
-  type: string;
+  id: number | string;
+  type?: string;
+  campaign_type?: string;
   recipient_group: string;
   status: string;
-  total: number;
-  sent: number;
-  failed_count: number;
-  created_at: string;
+  total?: number;
+  total_count?: number;
+  sent?: number;
+  sent_count?: number;
+  failed_count?: number;
+  created_at?: string;
 }
 
 export interface DashboardStats {
   total_campaigns: number;
   total_sent: number;
+  total_contacts?: number;
+  total_remaining?: number;
   total_failed: number;
+  success_rate?: number;
+  active_count?: number;
+  whatsapp_count?: number;
+  email_count?: number;
+  status_counts?: Record<string, number>;
   campaigns: Campaign[];
 }
 

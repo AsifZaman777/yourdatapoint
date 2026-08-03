@@ -24,11 +24,11 @@ interface CampaignHistoryProps {
 }
 
 export function CampaignHistory({ campaigns, onRefresh }: CampaignHistoryProps) {
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<number | string | null>(null);
   const [expandedLogs, setExpandedLogs] = useState<CampaignLog[]>([]);
-  const [stopTargetId, setStopTargetId] = useState<number | null>(null);
+  const [stopTargetId, setStopTargetId] = useState<number | string | null>(null);
 
-  const handleToggleExpand = async (id: number) => {
+  const handleToggleExpand = async (id: number | string) => {
     if (expandedId === id) {
       setExpandedId(null);
       setExpandedLogs([]);

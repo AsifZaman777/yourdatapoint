@@ -31,20 +31,48 @@ export function ScraperForm({
 }: ScraperFormProps) {
   const [queries, setQueries] = useState<string[]>([""]);
   const [division, setDivision] = useState("");
+  const [customDivision, setCustomDivision] = useState("");
   const [district, setDistrict] = useState("");
+  const [customDistrict, setCustomDistrict] = useState("");
   const [area, setArea] = useState("");
+  const [customArea, setCustomArea] = useState("");
   const [showLiveDebug, setShowLiveDebug] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const divisions = regionsConfig ? Object.keys(regionsConfig) : [];
   const districts =
-    regionsConfig && division && regionsConfig[division]
+    regionsConfig && division && division !== "Other" && regionsConfig[division]
       ? Object.keys(regionsConfig[division])
+      : regionsConfig
+      ? Array.from(new Set(Object.values(regionsConfig).flatMap((d) => Object.keys(d))))
       : [];
   const areas =
-    regionsConfig && division && district && regionsConfig[division]?.[district]
+    regionsConfig && division && division !== "Other" && district && district !== "Other" && regionsConfig[division]?.[district]
       ? regionsConfig[division][district]
+      : regionsConfig
+      ? Array.from(new Set(Object.values(regionsConfig).flatMap((d) => Object.values(d).flat())))
       : [];
+
+  const handleDivisionChange = (val: string) => {
+    setDivision(val || "");
+    setCustomDivision("");
+    setDistrict("");
+    setCustomDistrict("");
+    setArea("");
+    setCustomArea("");
+  };
+
+  const handleDistrictChange = (val: string) => {
+    setDistrict(val || "");
+    setCustomDistrict("");
+    setArea("");
+    setCustomArea("");
+  };
+
+  const handleAreaChange = (val: string) => {
+    setArea(val || "");
+    setCustomArea("");
+  };
 
   const handleAddQuery = () => {
     setQueries([...queries, ""]);
@@ -73,14 +101,18 @@ export function ScraperForm({
       return;
     }
 
+    const finalDivision = division === "Other" ? customDivision.trim() : division;
+    const finalDistrict = district === "Other" ? customDistrict.trim() : district;
+    const finalArea = area === "Other" ? customArea.trim() : area;
+
     setIsSubmitting(true);
     try {
       const res = await scraperApi.startScrape({
         queries: validQueries,
         query: validQueries[0],
-        division,
-        district,
-        area,
+        division: finalDivision,
+        district: finalDistrict,
+        area: finalArea,
         headless: !showLiveDebug,
       });
 
@@ -142,10 +174,11 @@ export function ScraperForm({
 
           {/* Region Selectors */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Division */}
             <div className="space-y-1.5">
-              <Label className="text-xs">Division</Label>
-              <Select value={division} onValueChange={(val) => setDivision(val || "")}>
-                <SelectTrigger className="text-xs h-9">
+              <Label className="text-xs font-semibold">Division</Label>
+              <Select value={division} onValueChange={(val) => handleDivisionChange(val || "")}>
+                <SelectTrigger className="w-full text-xs h-9">
                   <SelectValue placeholder="All Divisions" />
                 </SelectTrigger>
                 <SelectContent>
@@ -154,14 +187,24 @@ export function ScraperForm({
                       {d}
                     </SelectItem>
                   ))}
+                  <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
+              {division === "Other" && (
+                <Input
+                  value={customDivision}
+                  onChange={(e) => setCustomDivision(e.target.value)}
+                  placeholder="Type custom division..."
+                  className="text-xs h-9 mt-1.5 border-primary/50"
+                />
+              )}
             </div>
 
+            {/* District */}
             <div className="space-y-1.5">
-              <Label className="text-xs">District</Label>
-              <Select value={district} disabled={!division} onValueChange={(val) => setDistrict(val || "")}>
-                <SelectTrigger className="text-xs h-9">
+              <Label className="text-xs font-semibold">District</Label>
+              <Select value={district} disabled={!division} onValueChange={(val) => handleDistrictChange(val || "")}>
+                <SelectTrigger className="w-full text-xs h-9">
                   <SelectValue placeholder="All Districts" />
                 </SelectTrigger>
                 <SelectContent>
@@ -170,14 +213,24 @@ export function ScraperForm({
                       {d}
                     </SelectItem>
                   ))}
+                  <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
+              {district === "Other" && (
+                <Input
+                  value={customDistrict}
+                  onChange={(e) => setCustomDistrict(e.target.value)}
+                  placeholder="Type custom district..."
+                  className="text-xs h-9 mt-1.5 border-primary/50"
+                />
+              )}
             </div>
 
+            {/* Area / City */}
             <div className="space-y-1.5">
-              <Label className="text-xs">Area / City</Label>
-              <Select value={area} disabled={!district} onValueChange={(val) => setArea(val || "")}>
-                <SelectTrigger className="text-xs h-9">
+              <Label className="text-xs font-semibold">Area / City</Label>
+              <Select value={area} disabled={!district} onValueChange={(val) => handleAreaChange(val || "")}>
+                <SelectTrigger className="w-full text-xs h-9">
                   <SelectValue placeholder="All Areas" />
                 </SelectTrigger>
                 <SelectContent>
@@ -186,8 +239,17 @@ export function ScraperForm({
                       {a}
                     </SelectItem>
                   ))}
+                  <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
+              {area === "Other" && (
+                <Input
+                  value={customArea}
+                  onChange={(e) => setCustomArea(e.target.value)}
+                  placeholder="Type custom area..."
+                  className="text-xs h-9 mt-1.5 border-primary/50"
+                />
+              )}
             </div>
           </div>
 

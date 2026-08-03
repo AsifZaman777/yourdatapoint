@@ -101,51 +101,45 @@ export default function ScraperPage() {
       {/* Title */}
       <div>
         <h1 className="text-2xl font-extrabold text-foreground">
-          {isAdmin ? "Live Google Maps Scraper Console" : "Dataset Request Portal"}
+          Live Google Maps Scraper & Request Console
         </h1>
         <p className="text-xs text-muted-foreground mt-1">
-          {isAdmin
-            ? "Execute real-time headless web scraping across Google Maps for Bangladesh business leads"
-            : "Submit custom dataset requests to our automated scraping engine and track fulfillment"}
+          Execute real-time web scraping across Google Maps for Bangladesh business leads or submit custom dataset requests
         </p>
       </div>
 
-      <Tabs defaultValue={isAdmin ? "scraper" : "request"} className="w-full">
+      <Tabs defaultValue="scraper" className="w-full">
         <TabsList className="bg-card/60 border border-border/40 p-1">
-          {isAdmin && (
-            <TabsTrigger value="scraper" className="gap-2 text-xs font-semibold">
-              <Search className="h-4 w-4 text-cyan-400" />
-              Live Scraper Console
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="scraper" className="gap-2 text-xs font-semibold">
+            <Search className="h-4 w-4 text-cyan-400" />
+            Live Scraper Console
+          </TabsTrigger>
           <TabsTrigger value="request" className="gap-2 text-xs font-semibold">
             <Inbox className="h-4 w-4 text-amber-500" />
             Submit Custom Dataset Request
           </TabsTrigger>
         </TabsList>
 
-        {/* TAB: SCRAPER CONSOLE (ADMIN) */}
-        {isAdmin && (
-          <TabsContent value="scraper" className="space-y-6 pt-4">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              <div className="lg:col-span-6">
-                <ScraperForm
-                  regionsConfig={regionsConfig}
-                  onJobCreated={handleJobCreated}
-                  cooldownRemaining={cooldown}
-                />
-              </div>
-
-              <div className="lg:col-span-6">
-                <ScraperTerminal
-                  logs={activeLogs}
-                  liveImage={liveImage}
-                  activeJobId={activeJobId}
-                />
-              </div>
+        {/* TAB: SCRAPER CONSOLE */}
+        <TabsContent value="scraper" className="space-y-6 pt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="lg:col-span-6">
+              <ScraperForm
+                regionsConfig={regionsConfig}
+                onJobCreated={handleJobCreated}
+                cooldownRemaining={cooldown}
+              />
             </div>
-          </TabsContent>
-        )}
+
+            <div className="lg:col-span-6">
+              <ScraperTerminal
+                logs={activeLogs}
+                liveImage={liveImage}
+                activeJobId={activeJobId}
+              />
+            </div>
+          </div>
+        </TabsContent>
 
         {/* TAB: DATASET REQUEST PORTAL */}
         <TabsContent value="request" className="space-y-6 pt-4">

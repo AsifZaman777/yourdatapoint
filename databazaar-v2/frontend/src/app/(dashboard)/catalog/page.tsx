@@ -124,7 +124,7 @@ export default function CatalogPage() {
     try {
       await datasetsApi.delete(deletePublicTarget.id);
       toast.success("Public dataset deleted successfully!");
-      loadDatasets();
+      loadPublicDatasets();
     } catch (err: any) {
       toast.error(getApiErrorMessage(err, "Failed to delete public dataset."));
     } finally {

@@ -24,10 +24,10 @@ export const marketingApi = {
     selected_contacts?: { phone: string; name: string }[] | null;
   }) => apiClient.post<{ campaign_id: number }>("/api/marketing/send-whatsapp", data),
 
-  campaignStatus: (campaignId: number) =>
+  campaignStatus: (campaignId: number | string) =>
     apiClient.get<CampaignProgress>(`/api/marketing/whatsapp-campaign/${campaignId}`),
 
-  stopCampaign: (campaignId: number) =>
+  stopCampaign: (campaignId: number | string) =>
     apiClient.post(`/api/marketing/whatsapp-campaign/${campaignId}/stop`),
 
   sendEmail: (data: {
@@ -35,7 +35,7 @@ export const marketingApi = {
     subject: string;
     html_code: string;
     selected_contacts?: { email: string; name: string }[] | null;
-  }) => apiClient.post<{ message: string }>("/api/marketing/send-email", data),
+  }) => apiClient.post<{ message: string; campaign_id?: number | string }>("/api/marketing/send-email", data),
 
   listCampaigns: () =>
     apiClient.get<Campaign[]>("/api/marketing/campaigns"),
