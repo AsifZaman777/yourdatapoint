@@ -131,7 +131,7 @@ export function JobHistory({ jobs, onRefresh, activeJobId, onViewLogs }: JobHist
               </TableHeader>
               <TableBody>
                 {jobs.map((job) => {
-                  const isRunning = job.status === "running" || job.id === activeJobId;
+                  const isRunning = job.status === "running";
                   const isDone = job.status === "done" || job.status === "stopped";
                   const itemCount = job.result_count || 0;
 

@@ -1007,19 +1007,21 @@ def run_background_scrape(job_id, queries, division, district, area, headless=Fa
     if all_results:
         filename = f"job_{job_id}_{int(time.time())}.xlsx"
         result_path = os.path.join(SCRAPE_RESULTS_FOLDER, filename)
-        save_to_excel(all_results, result_path)
+        saved_count = save_to_excel(all_results, result_path)
+        if saved_count is None:
+            saved_count = len(all_results)
 
         final_status = "stopped" if stopped_early else "done"
         db = get_db()
         db.execute(
             "UPDATE scrape_jobs SET status = ?, result_path = ?, result_count = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (final_status, result_path, len(all_results), job_id)
+            (final_status, result_path, saved_count, job_id)
         )
         db.commit()
         db.close()
 
         status_msg = "stopped manually" if stopped_early else f"completed all {len(queries)} queries"
-        log_cb(f"🎉 Scraper {status_msg}! Preserved {len(all_results)} total business records into your private catalogue dataset.")
+        log_cb(f"🎉 Scraper {status_msg}! Preserved {saved_count} total business records into your private catalogue dataset.")
     else:
         final_status = "stopped" if stopped_early else "failed"
         db = get_db()

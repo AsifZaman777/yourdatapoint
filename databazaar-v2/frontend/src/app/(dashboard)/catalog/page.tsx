@@ -211,6 +211,9 @@ export default function CatalogPage() {
     );
   }
 
+  const privateJobsCount = scraperJobs.filter((j) => j.status === "done" || j.status === "stopped").length;
+  const totalPrivateCount = privateJobsCount + myPrivateDatasets.length;
+
   return (
     <div className="space-y-6">
       {/* Page Title */}
@@ -230,7 +233,7 @@ export default function CatalogPage() {
           </TabsTrigger>
           <TabsTrigger value="private" className="gap-2 text-xs font-semibold">
             <Lock className="h-4 w-4 text-amber-500" />
-            {ct.tabPrivate || "My Private Leads"} ({scraperJobs.filter((j) => j.status === "done").length})
+            {ct.tabPrivate || "My Private Leads"} ({totalPrivateCount})
           </TabsTrigger>
         </TabsList>
 

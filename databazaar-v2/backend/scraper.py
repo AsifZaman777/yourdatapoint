@@ -85,12 +85,16 @@ def clear_job_stop(job_id: int):
 
 
 def setup_driver(headless=True):
-    """Setup Chrome in headless background mode with Selenium"""
+    """Setup Chrome in background mode with Selenium and anti-interception protection"""
     options = Options()
-    options.add_argument("--headless=new")
+    if headless:
+        options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-popup-blocking")
+    options.add_argument("--disable-notifications")
+    options.add_argument("--disable-infobars")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
@@ -100,6 +104,20 @@ def setup_driver(headless=True):
     )
     driver = webdriver.Chrome(options=options)
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+    # Prevent reload interception & beforeunload popups via CDP
+    try:
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                window.location.reload = function() { console.log('[Scraper Protection] Page reload suppressed.'); };
+                window.addEventListener('beforeunload', function(e) {
+                    e.stopImmediatePropagation();
+                }, true);
+            """
+        })
+    except Exception:
+        pass
+
     return driver
 
 def extract_phone(text):
@@ -262,9 +280,9 @@ def scrape_query(driver, query, log_cb=print, job_id=None):
     return results
 
 def save_to_excel(all_results, filename):
-    """Save results to format-aligned Excel spreadsheet"""
+    """Save results to format-aligned Excel spreadsheet and return deduplicated row count"""
     if not all_results:
-        return
+        return 0
     df = pd.DataFrame(all_results)
     if "Phone" in df.columns:
         df["Phone"] = df["Phone"].astype(str).str.replace(r'\.0$', '', regex=True).replace({'nan': '', 'None': ''})
@@ -297,3 +315,5 @@ def save_to_excel(all_results, filename):
             if row[1].value:  # has phone
                 for cell in row:
                     cell.fill = green_fill
+
+    return len(df)
