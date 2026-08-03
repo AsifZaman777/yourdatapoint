@@ -14,18 +14,26 @@ import { requestsApi } from "@/lib/api/requests";
 import { useAuth } from "@/providers/auth-provider";
 import type { RegionsConfig, DatasetRequest, ScraperJob } from "@/lib/types";
 
+import { JobHistory } from "@/components/scraper/job-history";
+
 export default function ScraperPage() {
   const { isAdmin } = useAuth();
   const [regionsConfig, setRegionsConfig] = useState<RegionsConfig | null>(null);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [activeLogs, setActiveLogs] = useState<string[]>([]);
-  const [liveImage, setLiveImage] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
 
   const [myRequests, setMyRequests] = useState<DatasetRequest[]>([]);
   const [recentJobs, setRecentJobs] = useState<ScraperJob[]>([]);
 
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const refreshJobs = useCallback(() => {
+    scraperApi
+      .listJobs()
+      .then((res) => setRecentJobs(res.data))
+      .catch(() => { });
+  }, []);
 
   // Load Config & Requests
   useEffect(() => {
@@ -39,11 +47,8 @@ export default function ScraperPage() {
       .then((res) => setMyRequests(res.data))
       .catch(() => { });
 
-    scraperApi
-      .listJobs()
-      .then((res) => setRecentJobs(res.data))
-      .catch(() => { });
-  }, []);
+    refreshJobs();
+  }, [refreshJobs]);
 
   const loadRequests = useCallback(() => {
     requestsApi
@@ -61,14 +66,6 @@ export default function ScraperPage() {
       try {
         const res = await scraperApi.jobStatus(jobId);
         setActiveLogs(res.data.logs);
-
-        // Fetch live screenshot if available
-        try {
-          const imgRes = await scraperApi.jobScreenshot(jobId);
-          if (imgRes.data.available && imgRes.data.image) {
-            setLiveImage(imgRes.data.image);
-          }
-        } catch { }
 
         if (res.data.job.status === "done" || res.data.job.status === "failed") {
           if (pollTimerRef.current) clearInterval(pollTimerRef.current);
@@ -139,11 +136,17 @@ export default function ScraperPage() {
               <div className="lg:col-span-6">
                 <ScraperTerminal
                   logs={activeLogs}
-                  liveImage={liveImage}
                   activeJobId={activeJobId}
                 />
               </div>
             </div>
+
+            {/* Scraper Job History & Private Datasets */}
+            <JobHistory
+              jobs={recentJobs}
+              onRefresh={refreshJobs}
+              activeJobId={activeJobId}
+            />
           </TabsContent>
         )}
 

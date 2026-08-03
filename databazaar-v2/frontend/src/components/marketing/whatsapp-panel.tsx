@@ -13,12 +13,15 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectGroup,
+  SelectLabel,
 } from "@/components/ui/select";
 import { ConfirmModal } from "@/components/ui/modal-confirm";
 import { WHATSAPP_TEMPLATES } from "@/data/whatsapp-templates";
 import { marketingApi } from "@/lib/api/marketing";
 import { toast } from "sonner";
-import type { Dataset, RecipientContact } from "@/lib/types";
+import { scraperApi } from "@/lib/api/scraper";
+import type { Dataset, RecipientContact, ScraperJob } from "@/lib/types";
 
 interface WhatsAppPanelProps {
   recipientGroups: Dataset[];
@@ -28,6 +31,7 @@ interface WhatsAppPanelProps {
   groupContacts: RecipientContact[];
   selectedContactIds: Set<number>;
   onSelectGroup?: (groupName: string) => void;
+  initialGroup?: string;
 }
 
 export function WhatsAppPanel({
@@ -38,9 +42,11 @@ export function WhatsAppPanel({
   groupContacts,
   selectedContactIds,
   onSelectGroup,
+  initialGroup,
 }: WhatsAppPanelProps) {
   const [waStatus, setWaStatus] = useState<string>("Checking...");
   const [recipientGroup, setRecipientGroup] = useState<string>("");
+  const [scrapedJobs, setScrapedJobs] = useState<ScraperJob[]>([]);
   const [templateText, setTemplateText] = useState<string>(WHATSAPP_TEMPLATES[0].text);
   const [companyName, setCompanyName] = useState("MarketingOstad");
   const [heading, setHeading] = useState("30% OFF Special B2B Deal");
@@ -50,6 +56,28 @@ export function WhatsAppPanel({
   const [description, setDescription] = useState("Get high converting verified B2B leads across Bangladesh instantly.");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    scraperApi
+      .listJobs()
+      .then((res) => {
+        setScrapedJobs(res.data.filter((j) => (j.status === "done" || j.status === "stopped") && (j.result_count || 0) > 0));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (initialGroup && initialGroup !== recipientGroup) {
+      setRecipientGroup(initialGroup);
+      onSelectGroup?.(initialGroup);
+      return;
+    }
+    if (!recipientGroup && recipientGroups.length > 0) {
+      const firstVal = `dataset_${recipientGroups[0].id}`;
+      setRecipientGroup(firstVal);
+      onSelectGroup?.(firstVal);
+    }
+  }, [recipientGroups, recipientGroup, initialGroup, onSelectGroup]);
 
   const checkStatus = () => {
     marketingApi
@@ -223,11 +251,24 @@ Return ONLY updated template.`;
                   <SelectValue placeholder="-- Choose Recipient Group --" />
                 </SelectTrigger>
                 <SelectContent>
-                  {recipientGroups.map((g) => (
-                    <SelectItem key={g.id} value={`dataset_${g.id}`}>
-                      {g.name} ({g.row_count} leads)
-                    </SelectItem>
-                  ))}
+                  <SelectGroup>
+                    <SelectLabel className="text-[11px] text-muted-foreground font-mono">Catalog Datasets</SelectLabel>
+                    {recipientGroups.map((g) => (
+                      <SelectItem key={g.id} value={`dataset_${g.id}`}>
+                        {g.name} ({g.row_count} leads)
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  {scrapedJobs.length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel className="text-[11px] text-cyan-400 font-mono">Private Scraped Datasets</SelectLabel>
+                      {scrapedJobs.map((j) => (
+                        <SelectItem key={j.id} value={`job_${j.id}`}>
+                          Job #{j.id}: {j.query} ({j.result_count} leads)
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
                 </SelectContent>
               </Select>
             </div>

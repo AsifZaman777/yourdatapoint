@@ -28,6 +28,15 @@ export const datasetsApi = {
   unlock: (id: number | string) =>
     apiClient.post<{ message: string; credits?: number }>(`/api/datasets/${id}/unlock`),
 
+  demote: (id: number | string) =>
+    apiClient.post<{ message: string }>(`/api/datasets/${id}/demote`),
+
+  publish: (id: number | string) =>
+    apiClient.post<{ message: string }>(`/api/datasets/${id}/publish`),
+
+  myPrivate: () =>
+    apiClient.get<Dataset[]>("/api/datasets/my-private"),
+
   delete: (id: number | string) =>
     apiClient.delete<{ message: string }>(`/api/admin/datasets/${id}`),
 

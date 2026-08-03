@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Globe, Lock } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DatasetCard } from "@/components/catalog/dataset-card";
@@ -21,10 +21,13 @@ import type { Dataset, DatasetDetail, ScraperJob, RegionsConfig } from "@/lib/ty
 
 export default function CatalogPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+
   const { token, user, refreshProfile, isAdmin } = useAuth();
   const { t } = useLanguage();
   const ct = t.catalog || {};
-  const [catalogTab, setCatalogTab] = useState<"public" | "private">("public");
+  const [catalogTab, setCatalogTab] = useState<"public" | "private">(tabParam === "private" ? "private" : "public");
 
   // Public datasets list state
   const [datasets, setDatasets] = useState<Dataset[]>([]);
@@ -38,16 +41,19 @@ export default function CatalogPage() {
   const [categoriesList, setCategoriesList] = useState<string[]>([]);
   const [regionsConfig, setRegionsConfig] = useState<RegionsConfig | null>(null);
 
-  // Private jobs list state
+  // Private jobs list & demoted private datasets state
   const [scraperJobs, setScraperJobs] = useState<ScraperJob[]>([]);
+  const [myPrivateDatasets, setMyPrivateDatasets] = useState<Dataset[]>([]);
 
   // Selected Detail View State
   const [selectedId, setSelectedId] = useState<string | number | null>(null);
   const [detail, setDetail] = useState<DatasetDetail | null>(null);
 
-  // Modal State replacements
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; query: string } | null>(null);
+  const [deletePublicTarget, setDeletePublicTarget] = useState<Dataset | null>(null);
+  const [demoteTarget, setDemoteTarget] = useState<Dataset | null>(null);
   const [promoteTarget, setPromoteTarget] = useState<{ id: number; query: string } | null>(null);
+  const [isDemoting, setIsDemoting] = useState(false);
 
   // Load configs
   useEffect(() => {
@@ -72,17 +78,40 @@ export default function CatalogPage() {
     loadPublicDatasets();
   }, [loadPublicDatasets]);
 
-  // Load Private Datasets (Done Scraper Jobs)
-  const loadPrivateJobs = useCallback(() => {
+  // Load Private Datasets & Done Scraper Jobs
+  const loadPrivateDatasets = useCallback(() => {
     scraperApi
       .listJobs()
       .then((res) => setScraperJobs(res.data))
       .catch(() => {});
+
+    datasetsApi
+      .myPrivate()
+      .then((res) => setMyPrivateDatasets(res.data))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
-    loadPrivateJobs();
-  }, [loadPrivateJobs]);
+    loadPrivateDatasets();
+  }, [loadPrivateDatasets]);
+
+  // Handle Demoting Public Dataset to Private
+  const confirmDemoteDataset = async () => {
+    if (!demoteTarget) return;
+    setIsDemoting(true);
+    try {
+      await datasetsApi.demote(demoteTarget.id);
+      toast.success(`Dataset "${demoteTarget.name}" demoted to Private Catalogue!`);
+      setDemoteTarget(null);
+      loadPublicDatasets();
+      loadPrivateDatasets();
+      setCatalogTab("private");
+    } catch {
+      toast.error("Failed to demote dataset.");
+    } finally {
+      setIsDemoting(false);
+    }
+  };
 
   // Open dataset details
   const [activeSearchQuery, setActiveSearchQuery] = useState("");
@@ -117,14 +146,12 @@ export default function CatalogPage() {
     }
   };
 
-  const [deletePublicTarget, setDeletePublicTarget] = useState<Dataset | null>(null);
-
   const confirmDeletePublic = async () => {
     if (!deletePublicTarget) return;
     try {
       await datasetsApi.delete(deletePublicTarget.id);
       toast.success("Public dataset deleted successfully!");
-      loadDatasets();
+      loadPublicDatasets();
     } catch (err: any) {
       toast.error(getApiErrorMessage(err, "Failed to delete public dataset."));
     } finally {
@@ -232,6 +259,7 @@ export default function CatalogPage() {
                 isAdmin={isAdmin}
                 onView={(id) => handleOpenDetails(id)}
                 onDelete={(target) => setDeletePublicTarget(target)}
+                onDemote={(target) => setDemoteTarget(target)}
               />
             ))}
 
@@ -243,31 +271,54 @@ export default function CatalogPage() {
           </div>
         </TabsContent>
 
-        {/* TAB 2: PRIVATE LEADS */}
+        {/* TAB 2: PRIVATE LEADS & DEMOTED DATASETS */}
         <TabsContent value="private" className="space-y-6 pt-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* 1. Scraped Jobs */}
             {scraperJobs
-              .filter((j) => j.status === "done")
+              .filter((j) => j.status === "done" || j.status === "stopped")
               .map((job) => (
                 <PrivateDatasetCard
-                  key={job.id}
+                  key={`job_${job.id}`}
                   job={job}
                   onView={(id) => handleOpenDetails(`job_${id}`)}
-                  onUseLeads={() => router.push("/marketing")}
+                  onUseLeads={() => router.push(`/marketing?tab=whatsapp&group=job_${job.id}`)}
                   onDelete={(id, q) => setDeleteTarget({ id, query: q })}
                   onPromote={(id, q) => setPromoteTarget({ id, query: q })}
                   isAdmin={isAdmin}
                 />
               ))}
 
-            {scraperJobs.filter((j) => j.status === "done").length === 0 && (
-              <div className="col-span-full text-center py-16 text-xs text-muted-foreground glass-panel">
-                {ct.noPrivateMatch || "No private scraped datasets found. Launch a scraping job from the Scraper Console to generate your private leads."}
-              </div>
-            )}
+            {/* 2. Demoted Datasets */}
+            {myPrivateDatasets.map((ds) => (
+              <DatasetCard
+                key={`ds_${ds.id}`}
+                dataset={ds}
+                isAdmin={isAdmin}
+                onView={(id) => handleOpenDetails(id)}
+                onDelete={(target) => setDeletePublicTarget(target)}
+              />
+            ))}
+
+            {scraperJobs.filter((j) => j.status === "done" || j.status === "stopped").length === 0 &&
+              myPrivateDatasets.length === 0 && (
+                <div className="col-span-full text-center py-16 text-xs text-muted-foreground glass-panel">
+                  {ct.noPrivateMatch || "No private datasets found. Launch a scraping job from the Scraper Console or demote a public dataset to store it in your private leads."}
+                </div>
+              )}
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Demote Public Dataset to Private Confirmation Modal */}
+      <ConfirmModal
+        open={!!demoteTarget}
+        onClose={() => setDemoteTarget(null)}
+        onConfirm={confirmDemoteDataset}
+        title={`Demote "${demoteTarget?.name}" to Private?`}
+        description={`Demoting this dataset will unpublish it from the Public Catalog and store it inside your Private Catalogue.`}
+        confirmText={isDemoting ? "Demoting..." : "Demote to Private"}
+      />
 
       {/* Public Dataset Delete Confirmation Modal */}
       <ConfirmModal

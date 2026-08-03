@@ -79,7 +79,7 @@ export interface ScraperJob {
   division?: string;
   district?: string;
   area?: string;
-  status: "running" | "done" | "failed";
+  status: "pending" | "running" | "done" | "stopped" | "failed";
   result_count?: number;
   promotion_status?: "pending" | "approved" | "rejected" | null;
   created_at?: string;

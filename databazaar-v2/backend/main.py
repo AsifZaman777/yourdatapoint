@@ -12,7 +12,7 @@ from email.mime.multipart import MIMEMultipart
 import pandas as pd
 from datetime import datetime
 from typing import Optional, Union
-from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +20,7 @@ from pydantic import BaseModel, EmailStr
 
 from database import get_db, init_db
 from auth import hash_password, verify_password, create_jwt_token, decode_jwt_token
-from scraper import setup_driver, scrape_query, save_to_excel
+from scraper import setup_driver, scrape_query, save_to_excel, get_live_frame, clear_scraper_frame, LIVE_FRAMES, is_job_stopped, stop_scraper_job, clear_job_stop
 from senders import run_whatsapp_campaign, write_log_to_file, SCREENSHOTS_FOLDER as CAMPAIGN_SCREENSHOTS
 from config import REGIONS, CATEGORIES, BREVO_API_KEY as CONFIG_BREVO_API_KEY, SMTP_USER as CONFIG_SMTP_USER, SUPERADMIN_EMAIL, SUPERADMIN_PASSWORD, SUPERADMIN_NAME, FRONTEND_URL, BKASH_NUMBER, BKASH_ACCOUNT_TYPE, PATHAO_NUMBER, PATHAO_ACCOUNT_TYPE, CREDIT_PACKAGES
 from email_templates import get_verification_email_html
@@ -38,7 +38,7 @@ app.add_middleware(
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 SCRAPE_RESULTS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scrape_results")
-SCRAPER_SCREENSHOTS_FOLDER = os.path.join(SCRAPE_RESULTS_FOLDER, "screenshots")
+SCRAPER_SCREENSHOTS_FOLDER = os.path.join(SCRAPE_RESULTS_FOLDER, "screenshots")  # Legacy, kept for compat
 LOGS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(SCRAPE_RESULTS_FOLDER, exist_ok=True)
@@ -434,6 +434,54 @@ def list_datasets(category: Optional[str] = None, division: Optional[str] = None
     rows = conn.execute(q, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+@app.get("/api/datasets/my-private")
+def get_my_private_datasets(current_user: dict = Depends(get_current_user)):
+    """Get demoted/private datasets owned by current user or all if admin"""
+    conn = get_db()
+    if current_user["role"] in ("admin", "superadmin"):
+        rows = conn.execute("SELECT * FROM datasets WHERE is_active = 0 ORDER BY created_at DESC").fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM datasets WHERE is_active = 0 AND uploaded_by = ? ORDER BY created_at DESC", (current_user["id"],)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/api/datasets/{dataset_id}/demote")
+@app.post("/api/datasets/{dataset_id}/unpublish")
+def demote_dataset_to_private(dataset_id: int, current_user: dict = Depends(get_current_user)):
+    """Demote a public dataset to unpublic/private catalogue"""
+    conn = get_db()
+    ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+    if not ds:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+
+    if current_user["role"] not in ("admin", "superadmin") and ds["uploaded_by"] != current_user["id"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="You do not have permission to demote this dataset.")
+
+    conn.execute("UPDATE datasets SET is_active = 0 WHERE id = ?", (dataset_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": f"Dataset '{ds['name']}' demoted to Private Catalogue!"}
+
+@app.post("/api/datasets/{dataset_id}/publish")
+def publish_dataset_to_public(dataset_id: int, current_user: dict = Depends(get_current_user)):
+    """Publish a private dataset back to the public catalogue"""
+    conn = get_db()
+    ds = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+    if not ds:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+
+    if current_user["role"] not in ("admin", "superadmin") and ds["uploaded_by"] != current_user["id"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="You do not have permission to publish this dataset.")
+
+    conn.execute("UPDATE datasets SET is_active = 1 WHERE id = ?", (dataset_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": f"Dataset '{ds['name']}' published to Public Catalogue!"}
 
 def resolve_dataset_file_path(file_path: Optional[str], dataset_id: Optional[Union[int, str]] = None) -> Optional[str]:
     if not file_path:
@@ -924,46 +972,63 @@ def run_background_scrape(job_id, queries, division, district, area, headless=Fa
 
     driver = None
     all_results = []
+    stopped_early = False
+
     try:
-        driver = setup_driver(headless=True)
+        driver = setup_driver(headless=headless)
         for idx, q in enumerate(queries):
+            if is_job_stopped(job_id):
+                stopped_early = True
+                log_cb("⏹️ Manual stop requested. Exiting scraper loop...")
+                break
+
             log_cb(f"─── [Query {idx+1}/{len(queries)}] Searching Google Maps: '{q}' ───")
             res = scrape_query(driver, q, log_cb, job_id=job_id)
             if res:
                 all_results.extend(res)
             log_cb(f"─── [Query {idx+1}/{len(queries)}] Completed: Collected {len(res) if res else 0} items ───")
-        driver.quit()
 
-        if all_results:
-            filename = f"job_{job_id}_{int(time.time())}.xlsx"
-            result_path = os.path.join(SCRAPE_RESULTS_FOLDER, filename)
-            save_to_excel(all_results, result_path)
+            if is_job_stopped(job_id):
+                stopped_early = True
+                log_cb("⏹️ Manual stop requested. Exiting scraper loop...")
+                break
 
-            db = get_db()
-            db.execute(
-                "UPDATE scrape_jobs SET status = 'done', result_path = ?, result_count = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (result_path, len(all_results), job_id)
-            )
-            db.commit()
-            db.close()
-            log_cb(f"🎉 Scraper completed all {len(queries)} queries! Aggregated {len(all_results)} total business items into your private catalogue dataset.")
-        else:
-            db = get_db()
-            db.execute("UPDATE scrape_jobs SET status = 'failed', error_message = 'No records parsed from any query.' WHERE id = ?", (job_id,))
-            db.commit()
-            db.close()
-            log_cb("Scraper execution halted: No listings found across any query.")
     except Exception as ex:
+        log_cb(f"⚠️ Scraper thread encountered exception / interruption: {ex}")
+    finally:
         if driver:
             try:
                 driver.quit()
             except Exception:
                 pass
+        clear_scraper_frame(job_id)
+
+    # Save any results collected so far (even if stopped or interrupted!)
+    if all_results:
+        filename = f"job_{job_id}_{int(time.time())}.xlsx"
+        result_path = os.path.join(SCRAPE_RESULTS_FOLDER, filename)
+        save_to_excel(all_results, result_path)
+
+        final_status = "stopped" if stopped_early else "done"
         db = get_db()
-        db.execute("UPDATE scrape_jobs SET status = 'failed', error_message = ? WHERE id = ?", (str(ex), job_id))
+        db.execute(
+            "UPDATE scrape_jobs SET status = ?, result_path = ?, result_count = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (final_status, result_path, len(all_results), job_id)
+        )
         db.commit()
         db.close()
-        log_cb(f"Fatal scraper thread exception: {ex}")
+
+        status_msg = "stopped manually" if stopped_early else f"completed all {len(queries)} queries"
+        log_cb(f"🎉 Scraper {status_msg}! Preserved {len(all_results)} total business records into your private catalogue dataset.")
+    else:
+        final_status = "stopped" if stopped_early else "failed"
+        db = get_db()
+        db.execute("UPDATE scrape_jobs SET status = ?, error_message = 'No records parsed before process ended.' WHERE id = ?", (final_status, job_id))
+        db.commit()
+        db.close()
+        log_cb("Scraper execution halted: 0 records collected.")
+
+    clear_job_stop(job_id)
 
 # ── Dataset Requests Portal API ──────────────────────────────
 
@@ -1221,35 +1286,127 @@ def delete_scrape_job(job_id: int, current_user: dict = Depends(get_current_user
     conn.close()
     return {"success": True, "message": "Scrape job deleted successfully."}
 
-@app.post("/api/scraper/jobs/{job_id}/promote")
-@app.post("/api/scraper/jobs/{job_id}/request-promote")
-def request_promote_job(job_id: int, category: str = Form(...), name: str = Form(...), current_user: dict = Depends(get_current_user)):
+@app.post("/api/scraper/jobs/{job_id}/stop")
+def stop_scrape_job_endpoint(job_id: int, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
-    if not job or job["status"] != "done" or not job["result_path"]:
+    if not job:
         conn.close()
-        raise HTTPException(status_code=400, detail="Cannot request promotion for this job because it has not finished successfully.")
+        raise HTTPException(status_code=404, detail="Scrape job not found.")
+    
+    if current_user["role"] not in ("admin", "superadmin") and job["user_id"] != current_user["id"]:
+        conn.close()
+        raise HTTPException(status_code=403, detail="You do not have permission to stop this job.")
+
+    stop_scraper_job(job_id)
+    conn.execute("INSERT INTO scrape_logs (job_id, message) VALUES (?, '⏹️ Manual stop request received from console user.')", (job_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": f"Stop signal sent for job #{job_id}."}
+
+@app.get("/api/scraper/jobs/{job_id}/data")
+def get_job_scraped_data(job_id: int, current_user: dict = Depends(get_current_user)):
+    """Return parsed leads data from the job's excel spreadsheet for private catalog viewing"""
+    conn = get_db()
+    job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
+    conn.close()
+    if not job:
+        raise HTTPException(status_code=404, detail="Scrape job not found.")
+
+    if current_user["role"] not in ("admin", "superadmin") and job["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Permission denied.")
+    
+    if not job["result_path"] or not os.path.exists(job["result_path"]):
+        return {"job_id": job_id, "query": job["query"], "count": 0, "data": []}
+
+    try:
+        df = pd.read_excel(job["result_path"])
+        df = df.fillna("")
+        records = df.to_dict(orient="records")
+        return {
+            "job_id": job_id,
+            "query": job["query"],
+            "division": job["division"],
+            "district": job["district"],
+            "area": job["area"],
+            "count": len(records),
+            "data": records
+        }
+    except Exception as ex:
+        raise HTTPException(status_code=500, detail=f"Failed to parse job Excel data: {ex}")
+
+@app.get("/api/scraper/jobs/{job_id}/download")
+def download_job_excel(job_id: int, request: Request, token: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    """Download scraped Excel dataset file"""
+    current_user = get_current_user(request=request, authorization=authorization, token=token)
+    conn = get_db()
+    job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
+    conn.close()
+    if not job or not job["result_path"] or not os.path.exists(job["result_path"]):
+        raise HTTPException(status_code=404, detail="Result file not found or job incomplete.")
+
+    if current_user["role"] not in ("admin", "superadmin") and job["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Permission denied.")
+
+    sanitized_query = re.sub(r'[^a-zA-Z0-9_\-]', '_', job["query"] or "leads")
+    filename = f"scraped_{sanitized_query}_job{job_id}.xlsx"
+    return FileResponse(
+        job["result_path"],
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=filename
+    )
+
+@app.post("/api/scraper/jobs/{job_id}/promote")
+@app.post("/api/scraper/jobs/{job_id}/request-promote")
+def request_promote_job(
+    job_id: int,
+    category: Optional[str] = Form(None),
+    name: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_user)
+):
+    conn = get_db()
+    job = conn.execute("SELECT * FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
+    if not job or not job["result_path"]:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Cannot add job to catalogue because result file is missing.")
+
+    if job["status"] not in ("done", "stopped"):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Job must be completed or stopped before adding to catalogue.")
 
     if current_user["role"] != "admin" and current_user["role"] != "superadmin" and job["user_id"] != current_user["id"]:
         conn.close()
-        raise HTTPException(status_code=403, detail="You do not have permission to request promotion for this dataset.")
+        raise HTTPException(status_code=403, detail="You do not have permission to promote this dataset.")
 
-    # Promote dataset directly into public catalog
+    final_name = name or job["query"] or f"Scraped Dataset #{job_id}"
+    final_category = category or "Scraped Leads"
+
+    # Check if already added to datasets table
+    existing_ds = conn.execute("SELECT id FROM datasets WHERE file_path LIKE ?", (f"%promoted_{job_id}_%",)).fetchone()
+    if existing_ds:
+        conn.execute("UPDATE scrape_jobs SET promotion_status = 'approved' WHERE id = ?", (job_id,))
+        conn.commit()
+        conn.close()
+        return {"success": True, "dataset_id": existing_ds["id"], "message": "Dataset already present in Private Catalogue."}
+
+    # Add dataset directly into catalogue
     new_filename = f"promoted_{job_id}_{int(time.time())}.xlsx"
     new_path = os.path.join(UPLOAD_FOLDER, new_filename)
     import shutil
     shutil.copy(job["result_path"], new_path)
     rel_path = f"uploads/{new_filename}"
 
-    conn.execute(
+    cursor = conn.cursor()
+    cursor.execute(
         """INSERT INTO datasets (name, category, division, district, area, file_path, row_count, column_names, price_credits, uploaded_by)
            VALUES (?, ?, ?, ?, ?, ?, ?, 'Name, Phone, Address, Website, Rating, Category, Maps URL, Query', 10, ?)""",
-        (name, category, job["division"], job["district"], job["area"], rel_path, job["result_count"], current_user["id"])
+        (final_name, final_category, job["division"], job["district"], job["area"], rel_path, job["result_count"], current_user["id"])
     )
-    conn.execute("UPDATE scrape_jobs SET promotion_status = 'approved', proposed_name = ?, proposed_category = ? WHERE id = ?", (name, category, job_id))
+    new_ds_id = cursor.lastrowid
+    conn.execute("UPDATE scrape_jobs SET promotion_status = 'approved', proposed_name = ?, proposed_category = ? WHERE id = ?", (final_name, final_category, job_id))
     conn.commit()
     conn.close()
-    return {"success": True, "message": "Scraped dataset dropped successfully into the Public Catalog!"}
+    return {"success": True, "dataset_id": new_ds_id, "message": "Scraped dataset added successfully to Private Catalogue!"}
 
 @app.get("/api/admin/promotion-requests")
 def list_promotion_requests(admin_user: dict = Depends(get_admin_user)):
@@ -1997,11 +2154,67 @@ def get_log_file(date: str, current_user: dict = Depends(get_current_user)):
     except Exception:
         raise HTTPException(status_code=500, detail="Error reading log file.")
 
-# ── Screenshot Endpoints ─────────────────────────────────
+# ── Live Scraper WebSocket Stream ─────────────────────────────
+
+@app.websocket("/ws/scraper/{job_id}/stream")
+async def scraper_live_stream(websocket: WebSocket, job_id: int):
+    """WebSocket endpoint that streams live JPEG frames from the scraper browser.
+    Authenticates via ?token= query param. Only sends frames when content changes."""
+    import asyncio
+
+    # Authenticate via query param
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4001, reason="Missing auth token")
+        return
+    try:
+        payload = decode_jwt_token(token)
+        if not payload:
+            await websocket.close(code=4001, reason="Invalid token")
+            return
+    except Exception:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+
+    await websocket.accept()
+
+    last_hash = None
+    try:
+        while True:
+            # Check if job is still running
+            conn = get_db()
+            job = conn.execute("SELECT status FROM scrape_jobs WHERE id = ?", (job_id,)).fetchone()
+            conn.close()
+
+            if not job or job["status"] in ("done", "failed"):
+                await websocket.send_json({"type": "job_ended", "status": job["status"] if job else "not_found"})
+                break
+
+            # Get latest frame from in-memory buffer
+            frame = get_live_frame(job_id)
+            if frame and frame["hash"] != last_hash:
+                last_hash = frame["hash"]
+                await websocket.send_json({
+                    "type": "frame",
+                    "image": frame["data"],  # base64 JPEG (no data URI prefix)
+                })
+
+            await asyncio.sleep(0.3)  # ~3 FPS max, only sends on change
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+
+# ── Screenshot Endpoints (Legacy/Fallback) ─────────────────────────────────
 
 @app.get("/api/scraper/jobs/{job_id}/screenshot")
 def get_scraper_screenshot(job_id: int, current_user: dict = Depends(get_current_user)):
-    """Return the latest scraper browser screenshot as base64"""
+    """Return the latest scraper browser screenshot as base64 (legacy fallback)"""
+    # Try in-memory frame buffer first
+    frame = get_live_frame(job_id)
+    if frame:
+        return {"available": True, "image": f"data:image/jpeg;base64,{frame['data']}"}
+    # Fallback to file-based (legacy)
     screenshot_path = os.path.join(SCRAPER_SCREENSHOTS_FOLDER, f"job_{job_id}.png")
     if not os.path.exists(screenshot_path):
         return {"available": False, "image": None}

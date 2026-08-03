@@ -1,6 +1,9 @@
 import time
 import re
 import os
+import hashlib
+import threading
+from io import BytesIO
 import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -9,28 +12,85 @@ from selenium.webdriver.chrome.options import Options
 SCROLL_TIMES = 10
 WAIT_TIME = 2
 
-SCREENSHOTS_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scrape_results", "screenshots")
-os.makedirs(SCREENSHOTS_FOLDER, exist_ok=True)
+# ── In-memory live frame buffer for WebSocket streaming ──
+# Stores the latest JPEG frame per job_id: { job_id: { "data": base64_str, "hash": md5_hex } }
+LIVE_FRAMES: dict[int, dict] = {}
+_frame_lock = threading.Lock()
 
-def save_scraper_screenshot(driver, job_id):
-    """Save a screenshot of the current browser state for live map view"""
+def push_scraper_frame(driver, job_id):
+    """Capture a compressed JPEG frame and store it in the in-memory buffer"""
     if not job_id:
         return
     try:
-        screenshot_path = os.path.join(SCREENSHOTS_FOLDER, f"job_{job_id}.png")
-        driver.save_screenshot(screenshot_path)
+        # Get screenshot as PNG bytes from Selenium
+        png_bytes = driver.get_screenshot_as_png()
+
+        # Compress to JPEG using Pillow for smaller frames (~20-50KB vs ~500KB PNG)
+        from PIL import Image as PILImage
+        img = PILImage.open(BytesIO(png_bytes))
+
+        # Resize to max 800px width to keep frames lightweight
+        max_width = 800
+        if img.width > max_width:
+            ratio = max_width / img.width
+            img = img.resize((max_width, int(img.height * ratio)), PILImage.LANCZOS)
+
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=40, optimize=True)
+        jpeg_bytes = buffer.getvalue()
+
+        import base64
+        b64_data = base64.b64encode(jpeg_bytes).decode("utf-8")
+        frame_hash = hashlib.md5(jpeg_bytes).hexdigest()
+
+        with _frame_lock:
+            LIVE_FRAMES[job_id] = {"data": b64_data, "hash": frame_hash}
     except Exception:
         pass
 
+def get_live_frame(job_id: int) -> dict | None:
+    """Get the latest frame for a job (thread-safe)"""
+    with _frame_lock:
+        return LIVE_FRAMES.get(job_id)
+
+def clear_scraper_frame(job_id: int):
+    """Clean up frame buffer when a job finishes"""
+    with _frame_lock:
+        LIVE_FRAMES.pop(job_id, None)
+
+# Backward-compatible alias — all existing call sites use this name
+save_scraper_screenshot = push_scraper_frame
+
+# ── Manual Job Interruption / Stop Registry ──
+STOPPED_JOBS: set[int] = set()
+_stop_lock = threading.Lock()
+
+def stop_scraper_job(job_id: int):
+    """Signal a job to stop scraping immediately"""
+    with _stop_lock:
+        STOPPED_JOBS.add(job_id)
+
+def is_job_stopped(job_id: int) -> bool:
+    """Check if job has received a stop signal"""
+    if not job_id:
+        return False
+    with _stop_lock:
+        return job_id in STOPPED_JOBS
+
+def clear_job_stop(job_id: int):
+    """Clean up stop registry entry"""
+    with _stop_lock:
+        STOPPED_JOBS.discard(job_id)
 
 
-def setup_driver(headless=False):
-    """Setup Chrome in visible or headless mode with Selenium"""
+
+def setup_driver(headless=True):
+    """Setup Chrome in headless background mode with Selenium"""
     options = Options()
-    if headless:
-        options.add_argument("--headless")
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
@@ -102,6 +162,10 @@ def scrape_query(driver, query, log_cb=print, job_id=None):
     seen_names = set()
 
     for i, listing in enumerate(listings):
+        if is_job_stopped(job_id):
+            log_cb("⏹️ Interruption / Stop signal received. Halting scrape for current query...")
+            break
+
         try:
             name = listing.get_attribute("aria-label") or ""
             href = listing.get_attribute("href") or ""

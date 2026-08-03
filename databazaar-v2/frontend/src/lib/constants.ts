@@ -29,6 +29,14 @@ export const SUPPORT_HOURS =
   "24/7 Automated System & Live WhatsApp Assistance";
 
 export const TOKEN_KEY = "token";
+
+export function getWsBase(): string {
+  const httpBase = getApiBase();
+  return httpBase
+    .replace(/^https:\/\//, "wss://")
+    .replace(/^http:\/\//, "ws://");
+}
+
 export const TAB_KEY = "currentTab";
 export const LANG_KEY = "lang";
 export const SCRAPE_RATE_LIMIT_KEY = "scrapeRateLimitUntil";

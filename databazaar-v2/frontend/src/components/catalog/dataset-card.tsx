@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, Coins, MapPin, Database, Trash2 } from "lucide-react";
+import { Eye, Coins, MapPin, Database, Trash2, Lock } from "lucide-react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +12,10 @@ interface DatasetCardProps {
   isAdmin?: boolean;
   onView: (id: number) => void;
   onDelete?: (dataset: Dataset) => void;
+  onDemote?: (dataset: Dataset) => void;
 }
 
-export function DatasetCard({ dataset, isAdmin, onView, onDelete }: DatasetCardProps) {
+export function DatasetCard({ dataset, isAdmin, onView, onDelete, onDemote }: DatasetCardProps) {
   const { t } = useLanguage();
   const ct = t.catalog || {};
 
@@ -63,22 +64,23 @@ export function DatasetCard({ dataset, isAdmin, onView, onDelete }: DatasetCardP
         </div>
       </CardContent>
 
-      <CardFooter className="px-5 py-3 border-t border-border/40 flex justify-between items-center bg-card/40">
+      <CardFooter className="px-5 py-3 border-t border-border/40 flex justify-between items-center bg-card/40 flex-wrap gap-2">
         <div className="flex items-center gap-1 font-mono text-amber-500 font-bold text-sm">
           <Coins className="h-4 w-4" />
           <span>{dataset.price_credits} CR</span>
         </div>
 
-        <div className="flex items-center gap-2">
-          {isAdmin && onDelete && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {onDemote && (
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onDelete(dataset)}
-              className="gap-1 text-xs h-8 text-rose-400 border-rose-500/30 hover:bg-rose-500/10"
+              onClick={() => onDemote(dataset)}
+              className="gap-1 text-xs h-8 text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
+              title="Demote public dataset to private catalogue"
             >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete
+              <Lock className="h-3.5 w-3.5" />
+              Demote
             </Button>
           )}
 

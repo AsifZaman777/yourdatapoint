@@ -13,14 +13,20 @@ import { marketingApi } from "@/lib/api/marketing";
 import { datasetsApi } from "@/lib/api/datasets";
 import type { DashboardStats as StatsType, Dataset, RecipientContact } from "@/lib/types";
 
+import { useSearchParams } from "next/navigation";
+
 export default function MarketingPage() {
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const groupParam = searchParams.get("group");
+
+  const [activeTab, setActiveTab] = useState(tabParam || "dashboard");
   const [stats, setStats] = useState<StatsType | null>(null);
   const [recipientGroups, setRecipientGroups] = useState<Dataset[]>([]);
 
   // Contact selector modal state
   const [selectorOpen, setSelectorOpen] = useState(false);
-  const [activeGroupVal, setActiveGroupVal] = useState("");
+  const [activeGroupVal, setActiveGroupVal] = useState(groupParam || "");
   const [groupContacts, setGroupContacts] = useState<RecipientContact[]>([]);
   const [selectedContactIds, setSelectedContactIds] = useState<Set<number>>(new Set());
 
@@ -41,7 +47,10 @@ export default function MarketingPage() {
   useEffect(() => {
     loadStats();
     loadRecipientGroups();
-  }, [loadStats, loadRecipientGroups]);
+    if (groupParam) {
+      loadContactsForGroup(groupParam);
+    }
+  }, [loadStats, loadRecipientGroups, groupParam]);
 
   // Load Contacts when active group changes
   const loadContactsForGroup = async (groupVal: string) => {
@@ -108,6 +117,7 @@ export default function MarketingPage() {
             groupContacts={groupContacts}
             selectedContactIds={selectedContactIds}
             onSelectGroup={loadContactsForGroup}
+            initialGroup={groupParam || undefined}
           />
         </TabsContent>
 

@@ -81,7 +81,7 @@ export function ScraperForm({
         division,
         district,
         area,
-        headless: !showLiveDebug,
+        headless: true,
       });
 
       toast.success(`Scrape job launched for ${validQueries.length} query(s)!`);
@@ -191,7 +191,7 @@ export function ScraperForm({
             </div>
           </div>
 
-          {/* Debug checkbox */}
+          {/* Stream option */}
           <div className="flex items-center space-x-2 pt-2">
             <Checkbox
               id="live-debug"
@@ -199,7 +199,7 @@ export function ScraperForm({
               onCheckedChange={(c) => setShowLiveDebug(!!c)}
             />
             <label htmlFor="live-debug" className="text-xs text-muted-foreground cursor-pointer">
-              Enable real-time Headless Driver screenshot stream debugging
+              Background Mode Active — Live WebSocket stream in console (No Chrome GUI window)
             </label>
           </div>
 
