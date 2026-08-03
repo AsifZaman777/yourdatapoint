@@ -103,7 +103,7 @@ function SidebarInner({
       icon: Settings,
       color: "text-cyan-400",
       items: [
-        { label: "Admin Overview", href: "/admin", icon: LayoutDashboard },
+        { label: "Admin Dashboard", href: "/admin", icon: LayoutDashboard },
         { label: "Dataset Requests", href: "/admin/requests", icon: Inbox, iconColor: "text-amber-500" },
         { label: "Gateway & QR Settings", href: "/admin/gateway", icon: Settings, iconColor: "text-cyan-500" },
       ],

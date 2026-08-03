@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Settings, Upload, Inbox, Coins } from "lucide-react";
+import { Settings, Upload, Inbox, Coins, LayoutDashboard } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { AdminDashboard } from "@/components/admin/admin-dashboard";
 import { DatasetUploadForm } from "@/components/admin/dataset-upload-form";
 import { PromotionRequests } from "@/components/admin/promotion-requests";
 import { PaymentVerification } from "@/components/admin/payment-verification";
@@ -21,7 +22,7 @@ interface AdminPageProps {
   initialTab?: string;
 }
 
-export default function AdminPage({ initialTab = "upload" }: AdminPageProps) {
+export default function AdminPage({ initialTab = "dashboard" }: AdminPageProps) {
   const { t } = useLanguage();
   const at = t.admin || {};
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -67,6 +68,9 @@ export default function AdminPage({ initialTab = "upload" }: AdminPageProps) {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="bg-card/60 border border-border/40 p-1 flex-wrap h-auto">
+          <TabsTrigger value="dashboard" className="gap-2 text-xs font-semibold">
+            <LayoutDashboard className="h-4 w-4 text-primary" /> Dashboard
+          </TabsTrigger>
           <TabsTrigger value="upload" className="gap-2 text-xs font-semibold">
             <Upload className="h-4 w-4 text-cyan-400" /> {at.tabUpload || "Upload Dataset"}
           </TabsTrigger>
@@ -83,6 +87,11 @@ export default function AdminPage({ initialTab = "upload" }: AdminPageProps) {
             <Settings className="h-4 w-4 text-muted-foreground" /> {at.tabGateway || "Gateway Settings"}
           </TabsTrigger>
         </TabsList>
+
+        {/* TAB 0: DASHBOARD */}
+        <TabsContent value="dashboard" className="pt-4">
+          <AdminDashboard />
+        </TabsContent>
 
         {/* TAB 1: UPLOAD */}
         <TabsContent value="upload" className="pt-4">
