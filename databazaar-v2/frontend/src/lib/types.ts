@@ -100,14 +100,15 @@ export interface CampaignProgress {
   logs: CampaignLog[];
 }
 
-export interface CampaignLog {
-  index: number;
-  name: string;
+export type CampaignLog = string | {
+  index?: number;
+  name?: string;
   phone?: string;
   email?: string;
-  status: string;
-  timestamp: string;
-}
+  status?: string;
+  timestamp?: string;
+  message?: string;
+};
 
 export interface Campaign {
   id: number | string;

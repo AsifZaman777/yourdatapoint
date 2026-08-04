@@ -88,6 +88,7 @@ function SidebarInner({
     Administration: true,
     "Customer Management": true,
     "Dataset Management": true,
+    "Marketing & Campaigns": true,
     "Payment Module": false,
     "Security Management": false,
     "Main Navigation": true,
@@ -124,6 +125,14 @@ function SidebarInner({
       items: [
         { label: "Datasets Catalog", href: "/catalog", icon: Database },
         { label: "Live Scraper Console", href: "/scraper", icon: Search },
+      ],
+    },
+    {
+      title: "Marketing & Campaigns",
+      icon: Send,
+      color: "text-pink-400",
+      items: [
+        { label: "Marketing Portal", href: "/marketing", icon: Send, iconColor: "text-pink-400" },
       ],
     },
     {

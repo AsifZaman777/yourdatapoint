@@ -1959,6 +1959,37 @@ def stop_campaign(campaign_id: str, current_user: dict = Depends(get_current_use
     conn.close()
     return {"success": True}
 
+@app.delete("/api/marketing/campaign/{campaign_id}")
+def delete_campaign(campaign_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only Super Admins and Admins can delete campaign logs.")
+    conn = get_db()
+    conn.execute("DELETE FROM campaign_logs WHERE campaign_id = ?", (campaign_id,))
+    conn.execute("DELETE FROM marketing_campaigns WHERE id = ?", (campaign_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Campaign and audit logs deleted successfully."}
+
+@app.delete("/api/marketing/campaign/{campaign_id}/logs")
+def clear_campaign_logs(campaign_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only Super Admins and Admins can delete audit trail logs.")
+    conn = get_db()
+    conn.execute("DELETE FROM campaign_logs WHERE campaign_id = ?", (campaign_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Audit trail logs cleared successfully."}
+
+@app.delete("/api/marketing/logs/clear-all")
+def clear_all_campaign_logs(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only Super Admins and Admins can clear all audit trail logs.")
+    conn = get_db()
+    conn.execute("DELETE FROM campaign_logs")
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "All campaign audit logs cleared successfully."}
+
 # ── Admin User Management / Credits ─────────────────────
 
 @app.get("/api/admin/users")
@@ -2372,6 +2403,28 @@ def get_log_file(date: str, current_user: dict = Depends(get_current_user)):
         return {"date": date, "content": content, "lines": content.strip().split("\n") if content.strip() else []}
     except Exception:
         raise HTTPException(status_code=500, detail="Error reading log file.")
+
+@app.get("/api/marketing/logs/{date}/download")
+def download_log_file(date: str, current_user: dict = Depends(get_current_user)):
+    """Download log file attachment"""
+    log_path = os.path.join(LOGS_FOLDER, f"{date}_campaigns.log")
+    if not os.path.exists(log_path):
+        raise HTTPException(status_code=404, detail="Log file not found.")
+    return FileResponse(path=log_path, filename=f"{date}_campaigns.log", media_type="text/plain")
+
+@app.delete("/api/marketing/logs/{date}")
+def delete_log_file(date: str, current_user: dict = Depends(get_current_user)):
+    """Delete a daily log file (Admin / Super Admin only)"""
+    if current_user["role"] not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only Super Admins and Admins can delete log files.")
+    log_path = os.path.join(LOGS_FOLDER, f"{date}_campaigns.log")
+    if not os.path.exists(log_path):
+        raise HTTPException(status_code=404, detail="Log file not found.")
+    try:
+        os.remove(log_path)
+        return {"success": True, "message": f"Log file for {date} deleted successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete log file: {str(e)}")
 
 # ── Live Scraper WebSocket Stream ─────────────────────────────
 

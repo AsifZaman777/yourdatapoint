@@ -53,4 +53,16 @@ export const marketingApi = {
     apiClient.get<{ contacts: RecipientContact[] }>(
       `/api/marketing/recipient-contacts?recipient_group=${recipientGroup}`
     ),
+
+  deleteCampaign: (campaignId: number | string) =>
+    apiClient.delete<{ success: boolean; message: string }>(`/api/marketing/campaign/${campaignId}`),
+
+  clearCampaignLogs: (campaignId: number | string) =>
+    apiClient.delete<{ success: boolean; message: string }>(`/api/marketing/campaign/${campaignId}/logs`),
+
+  clearAllLogs: () =>
+    apiClient.delete<{ success: boolean; message: string }>("/api/marketing/logs/clear-all"),
+
+  deleteLogFile: (date: string) =>
+    apiClient.delete<{ success: boolean; message: string }>(`/api/marketing/logs/${date}`),
 };

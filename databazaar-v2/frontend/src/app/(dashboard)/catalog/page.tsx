@@ -106,8 +106,8 @@ export default function CatalogPage() {
       loadPublicDatasets();
       loadPrivateDatasets();
       setCatalogTab("private");
-    } catch {
-      toast.error("Failed to demote dataset.");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to demote dataset."));
     } finally {
       setIsDemoting(false);
     }
@@ -128,7 +128,7 @@ export default function CatalogPage() {
     try {
       const res = await datasetsApi.detail(id, page, limit, searchQuery);
       setDetail(res.data);
-    } catch (err: any) {
+    } catch (err) {
       toast.error(getApiErrorMessage(err, "Failed to load dataset details."));
     }
   };
@@ -141,7 +141,7 @@ export default function CatalogPage() {
       toast.success(res.data.message || "Dataset unlocked successfully!");
       refreshProfile();
       handleOpenDetails(detail.dataset.id);
-    } catch (err: any) {
+    } catch (err) {
       toast.error(getApiErrorMessage(err, "Failed to unlock dataset."));
     }
   };
@@ -150,10 +150,11 @@ export default function CatalogPage() {
     if (!deletePublicTarget) return;
     try {
       await datasetsApi.delete(deletePublicTarget.id);
-      toast.success("Public dataset deleted successfully!");
+      toast.success("Dataset deleted successfully!");
       loadPublicDatasets();
-    } catch (err: any) {
-      toast.error(getApiErrorMessage(err, "Failed to delete public dataset."));
+      loadPrivateDatasets();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to delete dataset."));
     } finally {
       setDeletePublicTarget(null);
     }
@@ -166,8 +167,8 @@ export default function CatalogPage() {
       await scraperApi.deleteJob(deleteTarget.id);
       toast.success("Private dataset deleted.");
       loadPrivateDatasets();
-    } catch {
-      toast.error("Failed to delete dataset.");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to delete dataset."));
     } finally {
       setDeleteTarget(null);
     }
@@ -180,7 +181,7 @@ export default function CatalogPage() {
       const res = await scraperApi.requestPromote(promoteTarget.id, proposedName, "General Business");
       toast.success(res.data.message || "Promotion requested!");
       loadPrivateDatasets();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(getApiErrorMessage(err, "Promotion failed."));
     } finally {
       setPromoteTarget(null);
@@ -225,7 +226,7 @@ export default function CatalogPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as any)} className="w-full">
+      <Tabs value={catalogTab} onValueChange={(v) => setCatalogTab(v as "public" | "private")} className="w-full">
         <TabsList className="bg-card/60 border border-border/40 p-1">
           <TabsTrigger value="public" className="gap-2 text-xs font-semibold">
             <Globe className="h-4 w-4 text-cyan-400" />
