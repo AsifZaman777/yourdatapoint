@@ -165,7 +165,7 @@ export default function CatalogPage() {
     try {
       await scraperApi.deleteJob(deleteTarget.id);
       toast.success("Private dataset deleted.");
-      loadPrivateJobs();
+      loadPrivateDatasets();
     } catch {
       toast.error("Failed to delete dataset.");
     } finally {
@@ -179,7 +179,7 @@ export default function CatalogPage() {
     try {
       const res = await scraperApi.requestPromote(promoteTarget.id, proposedName, "General Business");
       toast.success(res.data.message || "Promotion requested!");
-      loadPrivateJobs();
+      loadPrivateDatasets();
     } catch (err: any) {
       toast.error(getApiErrorMessage(err, "Promotion failed."));
     } finally {
