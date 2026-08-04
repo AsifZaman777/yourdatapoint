@@ -1,5 +1,5 @@
 import apiClient from "./client";
-import type { Campaign, CampaignProgress, DashboardStats, LogFile, LogFileContent, RecipientContact } from "@/lib/types";
+import type { BrevoApplication, Campaign, CampaignProgress, DashboardStats, LogFile, LogFileContent, RecipientContact } from "@/lib/types";
 
 export const marketingApi = {
   whatsappStatus: () =>
@@ -65,4 +65,46 @@ export const marketingApi = {
 
   deleteLogFile: (date: string) =>
     apiClient.delete<{ success: boolean; message: string }>(`/api/marketing/logs/${date}`),
+
+  // ── Brevo Verification & Config ──
+  brevoApply: (data: {
+    business_name: string;
+    domain_name: string;
+    location: string;
+    business_phone: string;
+    social_media_website: string;
+  }) => apiClient.post<{ success: boolean; message: string }>("/api/marketing/brevo-apply", data),
+
+  brevoStatus: () =>
+    apiClient.get<{
+      status: "none" | "pending" | "pending_email_verification" | "email_verified" | "approved" | "rejected";
+      api_key?: string;
+      daily_limit: number;
+      today_sent: number;
+      application?: BrevoApplication;
+    }>("/api/marketing/brevo-status"),
+
+  checkBrevoVerification: () =>
+    apiClient.post<{ success: boolean; status: string; message: string }>("/api/marketing/brevo-check-verification"),
+
+  activateBrevoLink: (activation_url: string) =>
+    apiClient.post<{ success: boolean; status: string; message: string }>("/api/marketing/brevo-activate-link", { activation_url }),
+
+  resendBrevoVerification: () =>
+    apiClient.post<{ success: boolean; message: string }>("/api/marketing/brevo-resend-verification"),
+
+  listBrevoApplications: () =>
+    apiClient.get<BrevoApplication[]>("/api/admin/brevo-applications"),
+
+  approveBrevoApplication: (appId: number, data: { api_key: string; daily_limit?: number; account_status?: string }) =>
+    apiClient.post<{ success: boolean; message: string }>(`/api/admin/brevo-applications/${appId}/approve`, data),
+
+  rejectBrevoApplication: (appId: number, data: { reason: string }) =>
+    apiClient.post<{ success: boolean; message: string }>(`/api/admin/brevo-applications/${appId}/reject`, data),
+
+  updateUserBrevoConfig: (userId: number, data: { api_key: string; daily_limit?: number; account_status?: string }) =>
+    apiClient.post<{ success: boolean; message: string }>(`/api/admin/users/${userId}/brevo-config`, data),
+
+  unapproveUserBrevo: (userId: number) =>
+    apiClient.post<{ success: boolean; message: string }>(`/api/admin/users/${userId}/brevo-unapprove`),
 };

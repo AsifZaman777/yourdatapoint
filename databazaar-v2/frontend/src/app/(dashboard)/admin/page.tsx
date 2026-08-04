@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Settings, Upload, Inbox, Coins, LayoutDashboard } from "lucide-react";
+import { Settings, Upload, Inbox, Coins, LayoutDashboard, Building } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AdminDashboard } from "@/components/admin/admin-dashboard";
 import { DatasetUploadForm } from "@/components/admin/dataset-upload-form";
 import { PromotionRequests } from "@/components/admin/promotion-requests";
 import { PaymentVerification } from "@/components/admin/payment-verification";
 import { GatewaySettings } from "@/components/admin/gateway-settings";
+import { BrevoApplicationsList } from "@/components/admin/brevo-applications";
 import { adminApi } from "@/lib/api/admin";
 import { configApi } from "@/lib/api/config";
 import { useLanguage } from "@/providers/language-provider";
@@ -96,6 +97,9 @@ export default function AdminPage({ initialTab = "dashboard" }: AdminPageProps) 
           <TabsTrigger value="requests" className="gap-2 text-xs font-semibold">
             <Inbox className="h-4 w-4 text-emerald-400" /> {at.tabRequests || "Dataset Requests"} ({pendingRequests})
           </TabsTrigger>
+          <TabsTrigger value="brevo" className="gap-2 text-xs font-semibold">
+            <Building className="h-4 w-4 text-purple-400" /> Brevo Verifications
+          </TabsTrigger>
           <TabsTrigger value="gateway" className="gap-2 text-xs font-semibold">
             <Settings className="h-4 w-4 text-muted-foreground" /> {at.tabGateway || "Gateway Settings"}
           </TabsTrigger>
@@ -130,7 +134,12 @@ export default function AdminPage({ initialTab = "dashboard" }: AdminPageProps) 
           <PaymentVerification requests={payments} onRefresh={loadData} />
         </TabsContent>
 
-        {/* TAB 4: REQUESTS */}
+        {/* TAB 4: BREVO VERIFICATIONS */}
+        <TabsContent value="brevo" className="pt-4">
+          <BrevoApplicationsList />
+        </TabsContent>
+
+        {/* TAB 5: REQUESTS */}
         <TabsContent value="requests" className="pt-4 space-y-4">
           <div className="rounded-lg border border-border/40 overflow-hidden bg-card/60 p-4">
             <h3 className="text-sm font-bold mb-3">{at.tabRequests || "Custom Dataset Requests List"}</h3>
@@ -146,6 +155,7 @@ export default function AdminPage({ initialTab = "dashboard" }: AdminPageProps) 
               ))}
             </div>
           </div>
+          <BrevoApplicationsList />
         </TabsContent>
 
         {/* TAB 5: GATEWAY */}

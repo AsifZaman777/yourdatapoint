@@ -281,6 +281,42 @@ def init_db():
             setting_value TEXT
         )
     """)
+
+    # Brevo Business Verification Applications Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS brevo_applications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            business_name TEXT NOT NULL,
+            domain_name TEXT NOT NULL,
+            location TEXT NOT NULL,
+            business_phone TEXT NOT NULL,
+            social_media_website TEXT NOT NULL,
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+            rejection_reason TEXT,
+            assigned_api_key TEXT,
+            daily_limit INTEGER DEFAULT 300,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            processed_at TIMESTAMP,
+            processed_by INTEGER,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (processed_by) REFERENCES users(id)
+        )
+    """)
+
+    # Brevo Account & Limit Migrations
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN brevo_api_key TEXT")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN brevo_account_status TEXT DEFAULT 'none'")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN daily_email_limit INTEGER DEFAULT 300")
+    except Exception:
+        pass
     try:
         cursor.execute("UPDATE users SET is_banned = 0, is_verified = 1, warning_message = '' WHERE role = 'admin' OR email = 'admin@marketingostad.com' OR email = 'admin@databazaar.com'")
         cursor.execute("DELETE FROM banned_ips")

@@ -1,7 +1,5 @@
-"use client";
-
 import { useState } from "react";
-import { UserCheck, ShieldAlert, AlertTriangle, Trash2, Coins, Plus, Minus } from "lucide-react";
+import { UserCheck, ShieldAlert, AlertTriangle, Trash2, Coins, Plus, Minus, Key, Building } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +23,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { adminApi } from "@/lib/api/admin";
+import { marketingApi } from "@/lib/api/marketing";
 import { toast } from "sonner";
 import type { User } from "@/lib/types";
 
@@ -47,6 +46,13 @@ export function UserManagement({
   const [roleTarget, setRoleTarget] = useState<{ userId: number; role: string } | null>(null);
   const [banTarget, setBanTarget] = useState<User | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+
+  // Brevo credentials modal state
+  const [brevoTarget, setBrevoTarget] = useState<User | null>(null);
+  const [brevoApiKey, setBrevoApiKey] = useState("");
+  const [dailyLimit, setDailyLimit] = useState<number>(300);
+  const [brevoStatus, setBrevoStatus] = useState<string>("approved");
+  const [isSubmittingBrevo, setIsSubmittingBrevo] = useState(false);
 
   const handleOpenCreditModal = (user: User, mode: "add" | "deduct") => {
     setCreditModalTarget({ user, mode });
@@ -124,6 +130,32 @@ export function UserManagement({
     }
   };
 
+  const handleOpenBrevoModal = (user: User) => {
+    setBrevoTarget(user);
+    setBrevoApiKey(user.brevo_api_key || `xkeysib-${Math.random().toString(36).substring(2, 12)}`);
+    setDailyLimit(user.daily_email_limit || 300);
+    setBrevoStatus(user.brevo_account_status || "approved");
+  };
+
+  const confirmBrevoConfig = async () => {
+    if (!brevoTarget) return;
+    setIsSubmittingBrevo(true);
+    try {
+      await marketingApi.updateUserBrevoConfig(brevoTarget.id, {
+        api_key: brevoApiKey,
+        daily_limit: Number(dailyLimit) || 300,
+        account_status: brevoStatus,
+      });
+      toast.success(`Updated Brevo configuration for ${brevoTarget.email}!`);
+      setBrevoTarget(null);
+      onRefresh();
+    } catch {
+      toast.error("Failed to update Brevo configuration.");
+    } finally {
+      setIsSubmittingBrevo(false);
+    }
+  };
+
   const calcNewBalance = () => {
     if (!creditModalTarget) return 0;
     const current = creditModalTarget.user.credits || 0;
@@ -146,7 +178,7 @@ export function UserManagement({
                 <TableHead>Role</TableHead>
                 <TableHead>Credits Balance</TableHead>
                 <TableHead>Status / Warning</TableHead>
-                <TableHead className="w-64 text-right">Actions (Add / Deduct Credits / Warning / Ban)</TableHead>
+                <TableHead className="w-72 text-right">Actions (Credits / Brevo API / Notice / Ban)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -154,7 +186,24 @@ export function UserManagement({
                 <TableRow key={u.id}>
                   <TableCell className="font-mono text-xs text-muted-foreground">#{u.id}</TableCell>
                   <TableCell className="text-xs font-semibold">
-                    <div>{u.email}</div>
+                    <div className="flex items-center gap-2">
+                      <span>{u.email}</span>
+                      {u.brevo_account_status === "email_verified" && (
+                        <Badge variant="outline" className="text-[9px] border-cyan-500/40 text-cyan-400 font-mono">
+                          Email Verified
+                        </Badge>
+                      )}
+                      {u.brevo_account_status === "approved" && (
+                        <Badge variant="outline" className="text-[9px] border-emerald-500/40 text-emerald-400 font-mono">
+                          API Active
+                        </Badge>
+                      )}
+                      {u.brevo_account_status === "pending_email_verification" && (
+                        <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-400 font-mono">
+                          Brevo Email Sent
+                        </Badge>
+                      )}
+                    </div>
                     <div className="text-[10px] text-muted-foreground">{u.full_name}</div>
                   </TableCell>
                   <TableCell className="text-xs">
@@ -201,6 +250,17 @@ export function UserManagement({
                         title="Add Credits (+)"
                       >
                         CR
+                      </Button>
+
+                      {/* BREVO CONFIG BUTTON */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleOpenBrevoModal(u)}
+                        className="h-7 text-[11px] px-2 text-purple-400 border-purple-500/40 hover:bg-purple-500/10 gap-1 font-mono"
+                        title="Brevo API Key & Daily Limits"
+                      >
+                        <Key className="h-3 w-3" /> Brevo
                       </Button>
 
                       {/* WARNING BUTTON */}
@@ -370,6 +430,75 @@ export function UserManagement({
         confirmText="Delete Account"
         isDanger
       />
+
+      {/* Brevo Config Modal */}
+      <Dialog open={!!brevoTarget} onOpenChange={(open) => !open && setBrevoTarget(null)}>
+        <DialogContent className="sm:max-w-md bg-card border-purple-500/30">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-purple-400">
+              <Key className="h-5 w-5" /> Brevo API Key & Limits ({brevoTarget?.email})
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Manually assign or edit this customer's Brevo API Key, daily dispatch limits, and verification status.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Brevo API Key *</Label>
+              <Input
+                placeholder="xkeysib-..."
+                value={brevoApiKey}
+                onChange={(e) => setBrevoApiKey(e.target.value)}
+                className="text-xs font-mono h-9"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Daily Email Dispatch Limit *</Label>
+              <Input
+                type="number"
+                value={dailyLimit}
+                onChange={(e) => setDailyLimit(Number(e.target.value))}
+                min={10}
+                max={50000}
+                className="text-xs h-9"
+              />
+              <p className="text-[10px] text-muted-foreground">Maximum emails allowed per 24-hour cycle (default: 300).</p>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Verification Status</Label>
+              <Select value={brevoStatus} onValueChange={(val) => val && setBrevoStatus(val)}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="approved">Approved & Active</SelectItem>
+                  <SelectItem value="email_verified">Email Verified (Ready for API Key)</SelectItem>
+                  <SelectItem value="pending_email_verification">Awaiting Customer Brevo Email</SelectItem>
+                  <SelectItem value="pending">Application Pending Review</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="none">None / Unverified</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="pt-3">
+            <Button variant="ghost" onClick={() => setBrevoTarget(null)} className="text-xs h-8">
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmBrevoConfig}
+              disabled={isSubmittingBrevo}
+              className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs h-8"
+            >
+              {isSubmittingBrevo ? "Saving Config..." : "Save Brevo Credentials"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

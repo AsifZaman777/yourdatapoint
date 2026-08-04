@@ -10,7 +10,28 @@ export interface User {
   warning_message?: string;
   is_banned?: number;
   ip_address?: string;
+  brevo_api_key?: string;
+  brevo_account_status?: "none" | "pending" | "pending_email_verification" | "email_verified" | "approved" | "rejected" | string;
+  daily_email_limit?: number;
   created_at?: string;
+}
+
+export interface BrevoApplication {
+  id: number;
+  user_id: number;
+  user_email?: string;
+  user_name?: string;
+  business_name: string;
+  domain_name: string;
+  location: string;
+  business_phone: string;
+  social_media_website: string;
+  status: "pending" | "pending_email_verification" | "email_verified" | "approved" | "rejected";
+  rejection_reason?: string;
+  assigned_api_key?: string;
+  daily_limit?: number;
+  created_at: string;
+  processed_at?: string;
 }
 
 export interface AuthResponse {

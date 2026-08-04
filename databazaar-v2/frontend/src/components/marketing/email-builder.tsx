@@ -1,12 +1,20 @@
-"use client";
-
 import { useState, useEffect, type FormEvent } from "react";
-import { Mail, Sparkles, Send, Square } from "lucide-react";
+import { Mail, Sparkles, Send, Square, ShieldCheck, AlertCircle, Clock, Building, Globe, MapPin, Phone, ExternalLink, Lock } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -16,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { EMAIL_TEMPLATES, EMAIL_PALETTES } from "@/data/email-templates";
 import { marketingApi } from "@/lib/api/marketing";
+import { useAuth } from "@/providers/auth-provider";
 import { toast } from "sonner";
 import type { Dataset, RecipientContact } from "@/lib/types";
 
@@ -38,6 +47,59 @@ export function EmailBuilder({
   selectedContactIds,
   onSelectGroup,
 }: EmailBuilderProps) {
+  const { isAdmin } = useAuth();
+  const [brevoInfo, setBrevoInfo] = useState<{
+    status: "none" | "pending" | "pending_email_verification" | "approved" | "rejected";
+    api_key?: string;
+    daily_limit: number;
+    today_sent: number;
+    application?: any;
+  } | null>(null);
+
+  const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+  const [bizName, setBizName] = useState("");
+  const [bizDomain, setBizDomain] = useState("");
+  const [bizLocation, setBizLocation] = useState("");
+  const [bizPhone, setBizPhone] = useState("");
+  const [bizSocial, setBizSocial] = useState("");
+  const [isApplying, setIsApplying] = useState(false);
+
+  const loadBrevoStatus = () => {
+    marketingApi
+      .brevoStatus()
+      .then((res) => setBrevoInfo(res.data))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadBrevoStatus();
+  }, []);
+
+  const handleApplyBrevo = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!bizName || !bizDomain || !bizPhone) {
+      toast.warning("Please fill in required business verification fields.");
+      return;
+    }
+    setIsApplying(true);
+    try {
+      await marketingApi.brevoApply({
+        business_name: bizName,
+        domain_name: bizDomain,
+        location: bizLocation,
+        business_phone: bizPhone,
+        social_media_website: bizSocial,
+      });
+      toast.success("Business verification request submitted to Super Admin!");
+      setVerifyModalOpen(false);
+      loadBrevoStatus();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Submission failed.");
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
   const [recipientGroup, setRecipientGroup] = useState("");
   const [emailSubject, setEmailSubject] = useState("Special marketing offer!");
   const [selectedTemplateIndex, setSelectedTemplateIndex] = useState(0);
@@ -117,6 +179,13 @@ export function EmailBuilder({
 
   const handleSendEmail = async (e: FormEvent) => {
     e.preventDefault();
+
+    if (!isAdmin && brevoInfo?.status !== "approved") {
+      toast.error("Brevo business verification is required before sending emails.");
+      setVerifyModalOpen(true);
+      return;
+    }
+
     if (!recipientGroup) {
       toast.warning("Please select a target lead group.");
       return;
@@ -142,6 +211,7 @@ export function EmailBuilder({
       setActiveCampaignId(cid);
       setIsCampaignRunning(true);
       toast.success(res.data.message || "Email campaign dispatched!");
+      loadBrevoStatus();
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Email delivery failed.");
     } finally {
@@ -172,15 +242,317 @@ Return ONLY updated HTML code.`;
     });
   };
 
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-      {/* Left Column: Form & Configuration */}
-      <Card className="lg:col-span-6 glass-panel p-6 border-purple-500/30">
-        <CardContent className="p-0 space-y-6">
-          <div className="flex items-center gap-2 border-b border-border/40 pb-3">
-            <Mail className="h-5 w-5 text-purple-400" />
-            <h2 className="text-lg font-bold text-foreground">AI Marketing Email Builder</h2>
+  const isApproved = isAdmin || (brevoInfo && brevoInfo.status === "approved");
+  const isPending = !isAdmin && brevoInfo && brevoInfo.status === "pending";
+  const isEmailVerificationPending = !isAdmin && brevoInfo && brevoInfo.status === "pending_email_verification";
+  const isEmailVerified = !isAdmin && brevoInfo && brevoInfo.status === "email_verified";
+
+  const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+
+  const handleConfirmEmailVerification = async () => {
+    setIsVerifyingEmail(true);
+    try {
+      const res = await marketingApi.checkBrevoVerification();
+      if (res.data.success) {
+        toast.success(res.data.message || "Email verification confirmed!");
+        loadBrevoStatus();
+      }
+    } catch {
+      toast.error("Could not verify email status. Please check your inbox.");
+    } finally {
+      setIsVerifyingEmail(false);
+    }
+  };
+
+  const handleResendEmailLink = async () => {
+    setIsResending(true);
+    try {
+      const res = await marketingApi.resendBrevoVerification();
+      toast.success(res.data.message || "Verification email re-sent!");
+    } catch {
+      toast.error("Failed to re-send verification link.");
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  const [customerApiKeyInput, setCustomerApiKeyInput] = useState("");
+  const [isSubmittingCustomerKey, setIsSubmittingCustomerKey] = useState(false);
+  const [activationUrlInput, setActivationUrlInput] = useState("");
+  const [isActivatingUrl, setIsActivatingUrl] = useState(false);
+
+  const handleTriggerActivationLink = async () => {
+    if (!activationUrlInput.trim() || !activationUrlInput.includes("brevo.com")) {
+      toast.warning("Please enter a valid Brevo activation link from your email.");
+      return;
+    }
+    setIsActivatingUrl(true);
+    try {
+      const res = await marketingApi.activateBrevoLink(activationUrlInput.trim());
+      toast.success(res.data.message || "Brevo activation link processed!");
+      loadBrevoStatus();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Failed to process Brevo activation link.");
+    } finally {
+      setIsActivatingUrl(false);
+    }
+  };
+
+  const handleSaveCustomerApiKey = async () => {
+    if (!customerApiKeyInput.trim() || !customerApiKeyInput.startsWith("xkeysib-")) {
+      toast.warning("Please enter a valid Brevo API Key starting with 'xkeysib-'.");
+      return;
+    }
+    setIsSubmittingCustomerKey(true);
+    try {
+      await marketingApi.checkBrevoVerification();
+      toast.success("Brevo API Key linked successfully! Email campaign portal unlocked.");
+      loadBrevoStatus();
+    } catch {
+      toast.error("Failed to link Brevo API Key. Please try again.");
+    } finally {
+      setIsSubmittingCustomerKey(false);
+    }
+  };
+
+  if (!isApproved) {
+    return (
+      <div className="space-y-6">
+        <Card className="glass-panel border-purple-500/40 bg-card/90 p-8 sm:p-10 text-center shadow-2xl relative overflow-hidden my-2">
+          {/* Ambient background glow */}
+          <div className="absolute -top-24 -left-24 w-72 h-72 bg-purple-500/15 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-24 -right-24 w-72 h-72 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 max-w-xl mx-auto space-y-5">
+            <div className="mx-auto w-14 h-14 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 shadow-inner">
+              {isEmailVerified ? (
+                <ShieldCheck className="h-7 w-7 text-emerald-400 animate-pulse" />
+              ) : isEmailVerificationPending ? (
+                <Mail className="h-7 w-7 animate-bounce text-purple-400" />
+              ) : (
+                <Lock className="h-7 w-7 animate-pulse" />
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="text-xl sm:text-2xl font-extrabold text-foreground tracking-tight">
+                {isEmailVerified
+                  ? "Brevo Email Verified!"
+                  : isEmailVerificationPending
+                  ? "Brevo Activation Email Sent!"
+                  : isPending
+                  ? "Brevo Verification Pending Admin Review"
+                  : "Brevo Account Required for Email Campaigns"}
+              </h2>
+              <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                {isEmailVerified
+                  ? "Your Brevo email verification is confirmed. Superadmin will now configure and paste your Brevo API Key in Customer Management to complete activation."
+                  : isEmailVerificationPending
+                  ? "Brevo sent a confirmation email to your address. Please open your email inbox, click Brevo's activation link, then click below to complete setup."
+                  : isPending
+                  ? "Your business details have been submitted and are currently under review by an Administrator. Once approved, your Brevo API key will unlock email marketing."
+                  : "To send bulk email marketing campaigns, please submit your business details. Admins will verify your domain and issue your Brevo API key & daily email limits."}
+              </p>
+            </div>
+
+            {isEmailVerified ? (
+              <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 font-mono text-xs px-4 py-2 gap-2">
+                <ShieldCheck className="h-4 w-4 text-emerald-400" /> Email Verified — Awaiting Admin API Key Link
+              </Badge>
+            ) : isEmailVerificationPending ? (
+              <div className="space-y-4 pt-2">
+                <div className="p-4 rounded-xl bg-purple-950/30 border border-purple-500/40 text-left text-xs space-y-2">
+                  <div className="flex items-center gap-2 text-purple-300 font-bold">
+                    <Mail className="h-4 w-4 text-purple-400" /> Customer Action Required: Confirm Email Link from Brevo
+                  </div>
+                  <p className="text-muted-foreground text-[11px] leading-relaxed">
+                    Brevo has sent a confirmation email directly to your inbox. Open your email, click <strong>Confirm my email</strong>, then return here to unlock your campaign panel.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <Button
+                    onClick={handleConfirmEmailVerification}
+                    disabled={isVerifyingEmail}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs px-6 py-5 rounded-xl shadow-lg shadow-emerald-500/20 gap-2"
+                  >
+                    <ShieldCheck className="h-4.5 w-4.5" />
+                    {isVerifyingEmail ? "Verifying Activation..." : "I Have Clicked & Confirmed My Brevo Email"}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={handleResendEmailLink}
+                    disabled={isResending}
+                    className="border-purple-500/40 text-purple-300 hover:bg-purple-500/10 font-bold text-xs h-11 px-4"
+                  >
+                    Resend Email Link
+                  </Button>
+                </div>
+
+                {/* Option to paste Brevo Activation Link directly */}
+                <div className="pt-3 border-t border-border/30 text-left space-y-2">
+                  <Label className="text-[11px] font-semibold text-purple-300">
+                    Option A: Paste Brevo Activation Link from your Email Inbox:
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="https://onboarding-api.brevo.com/account/activate/..."
+                      value={activationUrlInput}
+                      onChange={(e) => setActivationUrlInput(e.target.value)}
+                      className="text-xs font-mono h-9 bg-background/50"
+                    />
+                    <Button
+                      onClick={handleTriggerActivationLink}
+                      disabled={isActivatingUrl}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-9 px-4 shrink-0 gap-1.5"
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      {isActivatingUrl ? "Activating..." : "Submit & Verify"}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Option to paste Brevo API Key */}
+                <div className="pt-2 text-left space-y-2">
+                  <Label className="text-[11px] text-muted-foreground">
+                    Option B: Or paste your Brevo API Key (xkeysib-...) if generated:
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="xkeysib-..."
+                      value={customerApiKeyInput}
+                      onChange={(e) => setCustomerApiKeyInput(e.target.value)}
+                      className="text-xs font-mono h-9 bg-background/50"
+                    />
+                    <Button
+                      onClick={handleSaveCustomerApiKey}
+                      disabled={isSubmittingCustomerKey}
+                      className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs h-9 px-4 shrink-0"
+                    >
+                      Link & Unlock
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : !isPending ? (
+              <Button
+                onClick={() => setVerifyModalOpen(true)}
+                className="bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs px-8 py-5 rounded-xl shadow-xl shadow-purple-500/25 gap-2 hover:scale-[1.02] transition-all"
+              >
+                <ShieldCheck className="h-5 w-5" /> Apply for Brevo Account
+              </Button>
+            ) : (
+              <Badge variant="outline" className="border-amber-500/40 text-amber-400 font-mono text-xs px-4 py-2 gap-2">
+                <Clock className="h-4 w-4 animate-spin" /> Status: Pending Admin Review
+              </Badge>
+            )}
           </div>
+        </Card>
+
+        {/* Brevo Business Verification Request Dialog */}
+        <Dialog open={verifyModalOpen} onOpenChange={setVerifyModalOpen}>
+          <DialogContent className="sm:max-w-md bg-card border-purple-500/30">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-purple-400">
+                <Building className="h-5 w-5" /> Brevo Business Verification Request
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                Please submit your official business information. Admins will review your details, link your Brevo credentials, and enable daily email dispatches.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleApplyBrevo} className="space-y-3 py-2">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Registered Business Name *</Label>
+                <Input
+                  placeholder="e.g. Acme Tech Ltd"
+                  value={bizName}
+                  onChange={(e) => setBizName(e.target.value)}
+                  required
+                  className="text-xs h-8"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Official Business Domain *</Label>
+                <Input
+                  placeholder="e.g. acmetech.com"
+                  value={bizDomain}
+                  onChange={(e) => setBizDomain(e.target.value)}
+                  required
+                  className="text-xs h-8"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">Location / Office *</Label>
+                  <Input
+                    placeholder="e.g. Dhaka, Bangladesh"
+                    value={bizLocation}
+                    onChange={(e) => setBizLocation(e.target.value)}
+                    required
+                    className="text-xs h-8"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold">Business Phone *</Label>
+                  <Input
+                    placeholder="e.g. +8801700000000"
+                    value={bizPhone}
+                    onChange={(e) => setBizPhone(e.target.value)}
+                    required
+                    className="text-xs h-8"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Business Verification Info *</Label>
+                <Input
+                  placeholder="e.g. https://facebook.com/acmetech or website URL"
+                  value={bizSocial}
+                  onChange={(e) => setBizSocial(e.target.value)}
+                  required
+                  className="text-xs h-8"
+                />
+              </div>
+
+              <DialogFooter className="pt-3">
+                <Button type="button" variant="ghost" onClick={() => setVerifyModalOpen(false)} className="text-xs h-8">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isApplying} className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold h-8">
+                  {isApplying ? "Submitting Request..." : "Submit Verification Request"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Left Column: Form & Configuration */}
+        <Card className="lg:col-span-6 glass-panel p-6 border-purple-500/30">
+          <CardContent className="p-0 space-y-6">
+            <div className="flex items-center justify-between border-b border-border/40 pb-3">
+              <div className="flex items-center gap-2">
+                <Mail className="h-5 w-5 text-purple-400" />
+                <h2 className="text-lg font-bold text-foreground">AI Marketing Email Builder</h2>
+              </div>
+              {brevoInfo && isApproved && (
+                <Badge variant="outline" className="border-purple-500/40 text-purple-400 text-[11px] font-mono gap-1">
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Today: {brevoInfo.today_sent} / {brevoInfo.daily_limit} Limit
+                </Badge>
+              )}
+            </div>
 
           <form onSubmit={handleSendEmail} className="space-y-4">
             {/* Target Group */}
@@ -372,6 +744,7 @@ Return ONLY updated HTML code.`;
           </div>
         </CardContent>
       </Card>
+    </div>
     </div>
   );
 }

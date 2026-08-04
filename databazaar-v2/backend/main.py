@@ -160,6 +160,29 @@ class EmailCampaignRequest(BaseModel):
 class ResendVerificationRequest(BaseModel):
     email: EmailStr
 
+class BrevoApplyRequest(BaseModel):
+    business_name: str
+    domain_name: str
+    location: str
+    business_phone: str
+    social_media_website: str
+
+class BrevoApproveRequest(BaseModel):
+    api_key: Optional[str] = ""
+    daily_limit: Optional[int] = 300
+    account_status: Optional[str] = "approved"
+
+class BrevoRejectRequest(BaseModel):
+    reason: str
+
+class UserBrevoConfigRequest(BaseModel):
+    api_key: str
+    daily_limit: Optional[int] = 300
+    account_status: Optional[str] = "approved"
+
+class BrevoActivateLinkRequest(BaseModel):
+    activation_url: str
+
 # ── Free Brevo / SMTP Helper ─────────────────────────────
 
 def send_free_verification_email(recipient_email: str, full_name: str, verify_link: str):
@@ -1827,9 +1850,28 @@ def send_email(req: EmailCampaignRequest, current_user: dict = Depends(get_curre
         except Exception:
             raise HTTPException(status_code=500, detail="Failed to load file.")
 
-    # Deduct 1 credit for email campaign
     conn = get_db()
-    if current_user["role"] != "admin" and current_user["role"] != "superadmin":
+    if current_user["role"] not in ("admin", "superadmin"):
+        # 1. Check Brevo verification status
+        status = current_user.get("brevo_account_status") or "none"
+        if status != "approved":
+            conn.close()
+            raise HTTPException(status_code=403, detail="Brevo business verification is required before sending email campaigns. Please submit your business details for verification.")
+
+        # 2. Check Daily Email Limit
+        daily_limit = current_user.get("daily_email_limit") or 300
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        row = conn.execute("""
+            SELECT SUM(sent_count) as total_today FROM marketing_campaigns 
+            WHERE user_id = ? AND campaign_type = 'email' AND created_at >= ?
+        """, (current_user["id"], today_str)).fetchone()
+        today_sent = (row["total_today"] or 0) if row else 0
+
+        if today_sent + target_count > daily_limit:
+            conn.close()
+            raise HTTPException(status_code=400, detail=f"Daily email limit exceeded. You have sent {today_sent}/{daily_limit} emails today. Sending {target_count} more would exceed your limit.")
+
+        # 3. Deduct credits
         if current_user["credits"] < 1:
             conn.close()
             raise HTTPException(status_code=403, detail="Insufficient credits to run email campaign.")
@@ -1844,7 +1886,7 @@ def send_email(req: EmailCampaignRequest, current_user: dict = Depends(get_curre
     )
     conn.execute(
         "INSERT INTO campaign_logs (campaign_id, message) VALUES (?, ?)",
-        (campaign_id, f"Email campaign dispatched successfully to {target_count} selected addresses.")
+        (campaign_id, f"Email campaign dispatched successfully to {target_count} selected addresses via Brevo API.")
     )
     conn.commit()
     conn.close()
@@ -1990,12 +2032,208 @@ def clear_all_campaign_logs(current_user: dict = Depends(get_current_user)):
     conn.close()
     return {"success": True, "message": "All campaign audit logs cleared successfully."}
 
+# ── Brevo Business Verification & Account Management Endpoints ───────────
+
+@app.post("/api/marketing/brevo-apply")
+def brevo_apply(req: BrevoApplyRequest, current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    existing = conn.execute("SELECT status FROM brevo_applications WHERE user_id = ? ORDER BY id DESC LIMIT 1", (current_user["id"],)).fetchone()
+    if existing and existing["status"] == "pending":
+        conn.close()
+        raise HTTPException(status_code=400, detail="You already have a pending business verification application under review.")
+        
+    conn.execute("""
+        INSERT INTO brevo_applications (user_id, business_name, domain_name, location, business_phone, social_media_website, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending')
+    """, (current_user["id"], req.business_name, req.domain_name, req.location, req.business_phone, req.social_media_website))
+    
+    conn.execute("UPDATE users SET brevo_account_status = 'pending' WHERE id = ?", (current_user["id"],))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Brevo business verification request submitted successfully."}
+
+@app.get("/api/marketing/brevo-status")
+def get_brevo_status(current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    u = conn.execute("SELECT brevo_account_status, brevo_api_key, daily_email_limit FROM users WHERE id = ?", (current_user["id"],)).fetchone()
+    app_info = conn.execute("SELECT * FROM brevo_applications WHERE user_id = ? ORDER BY id DESC LIMIT 1", (current_user["id"],)).fetchone()
+    
+    today_sent = 0
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    row = conn.execute("""
+        SELECT SUM(sent_count) as total_today FROM marketing_campaigns 
+        WHERE user_id = ? AND campaign_type = 'email' AND created_at >= ?
+    """, (current_user["id"], today_str)).fetchone()
+    if row and row["total_today"]:
+        today_sent = row["total_today"]
+        
+    conn.close()
+    return {
+        "status": (u["brevo_account_status"] if u and u["brevo_account_status"] else "none"),
+        "api_key": u["brevo_api_key"] if u else None,
+        "daily_limit": u["daily_email_limit"] if u and u["daily_email_limit"] else 300,
+        "today_sent": today_sent,
+        "application": dict(app_info) if app_info else None
+    }
+
+@app.get("/api/admin/brevo-applications")
+def list_brevo_applications(current_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT a.*, u.email as user_email, u.full_name as user_name, u.brevo_api_key, u.daily_email_limit
+        FROM brevo_applications a
+        JOIN users u ON a.user_id = u.id
+        ORDER BY a.created_at DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/api/admin/brevo-applications/{app_id}/approve")
+def approve_brevo_application(app_id: int, req: BrevoApproveRequest, current_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    app_info = conn.execute("SELECT user_id FROM brevo_applications WHERE id = ?", (app_id,)).fetchone()
+    if not app_info:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Application record not found.")
+        
+    user_id = app_info["user_id"]
+    target_status = req.account_status or "approved"
+    app_table_status = "approved" if target_status in ["approved", "pending_email_verification"] else target_status
+    
+    conn.execute("""
+        UPDATE brevo_applications 
+        SET status = ?, assigned_api_key = ?, daily_limit = ?, processed_at = CURRENT_TIMESTAMP, processed_by = ?
+        WHERE id = ?
+    """, (app_table_status, req.api_key or "", req.daily_limit or 300, current_user["id"], app_id))
+    
+    conn.execute("""
+        UPDATE users 
+        SET brevo_account_status = ?, brevo_api_key = ?, daily_email_limit = ?
+        WHERE id = ?
+    """, (target_status, req.api_key or "", req.daily_limit or 300, user_id))
+    
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": f"Brevo application updated to {target_status}."}
+
+@app.post("/api/marketing/brevo-check-verification")
+def check_brevo_verification(current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    u = conn.execute("SELECT brevo_account_status, brevo_api_key FROM users WHERE id = ?", (current_user["id"],)).fetchone()
+    
+    if not u:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found.")
+        
+    has_api_key = bool(u["brevo_api_key"] and u["brevo_api_key"].startswith("xkeysib-"))
+    new_status = "approved" if has_api_key else "email_verified"
+    
+    conn.execute("UPDATE users SET brevo_account_status = ? WHERE id = ?", (new_status, current_user["id"]))
+    conn.execute("UPDATE brevo_applications SET status = 'approved' WHERE user_id = ?", (current_user["id"],))
+    conn.commit()
+    conn.close()
+    
+    msg = "Email verification confirmed! Portal unlocked." if has_api_key else "Email verification confirmed! Admin notified to link your Brevo API key."
+    return {"success": True, "status": new_status, "message": msg}
+
+@app.post("/api/marketing/brevo-activate-link")
+def activate_brevo_link(req: BrevoActivateLinkRequest, current_user: dict = Depends(get_current_user)):
+    url = req.activation_url.strip()
+    if not url or "brevo.com" not in url:
+        raise HTTPException(status_code=400, detail="Please enter a valid Brevo activation link from your email.")
+        
+    try:
+        req_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        requests.get(url, headers=req_headers, timeout=12)
+    except Exception as e:
+        print(f"Brevo activation link trigger error: {e}")
+        
+    conn = get_db()
+    u = conn.execute("SELECT brevo_api_key FROM users WHERE id = ?", (current_user["id"],)).fetchone()
+    has_api_key = bool(u and u["brevo_api_key"] and u["brevo_api_key"].startswith("xkeysib-"))
+    new_status = "approved" if has_api_key else "email_verified"
+    
+    conn.execute("UPDATE users SET brevo_account_status = ? WHERE id = ?", (new_status, current_user["id"]))
+    conn.execute("UPDATE brevo_applications SET status = 'approved' WHERE user_id = ?", (current_user["id"],))
+    conn.commit()
+    conn.close()
+    
+    msg = "Brevo activation link triggered! Email verification confirmed."
+    return {"success": True, "status": new_status, "message": msg}
+
+@app.post("/api/marketing/brevo-resend-verification")
+def resend_brevo_verification(current_user: dict = Depends(get_current_user)):
+    user_email = current_user["email"]
+    try:
+        send_free_verification_email(user_email, current_user.get("full_name") or "Valued User", "https://databazaar-v2.com/marketing")
+    except Exception:
+        pass
+    return {"success": True, "message": f"Verification reminder re-sent to {user_email}."}
+
+@app.post("/api/admin/brevo-applications/{app_id}/reject")
+def reject_brevo_application(app_id: int, req: BrevoRejectRequest, current_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    app_info = conn.execute("SELECT user_id FROM brevo_applications WHERE id = ?", (app_id,)).fetchone()
+    if not app_info:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Application record not found.")
+        
+    user_id = app_info["user_id"]
+    conn.execute("""
+        UPDATE brevo_applications 
+        SET status = 'rejected', rejection_reason = ?, processed_at = CURRENT_TIMESTAMP, processed_by = ?
+        WHERE id = ?
+    """, (req.reason, current_user["id"], app_id))
+    
+    conn.execute("UPDATE users SET brevo_account_status = 'rejected', brevo_api_key = NULL WHERE id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Brevo application rejected and account locked."}
+
+@app.post("/api/admin/users/{user_id}/brevo-config")
+def update_user_brevo_config(user_id: int, req: UserBrevoConfigRequest, current_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    u = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not u:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found.")
+        
+    status = req.account_status or "approved"
+    api_key = req.api_key if status in ["approved", "pending_email_verification"] else None
+    
+    conn.execute("""
+        UPDATE users 
+        SET brevo_api_key = ?, daily_email_limit = ?, brevo_account_status = ?
+        WHERE id = ?
+    """, (api_key, req.daily_limit or 300, status, user_id))
+    
+    if status in ["none", "rejected"]:
+        conn.execute("UPDATE brevo_applications SET status = 'rejected' WHERE user_id = ?", (user_id,))
+        
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": f"User Brevo configuration updated to '{status}'."}
+
+@app.post("/api/admin/users/{user_id}/brevo-unapprove")
+def unapprove_user_brevo(user_id: int, current_user: dict = Depends(get_admin_user)):
+    conn = get_db()
+    u = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not u:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found.")
+        
+    conn.execute("UPDATE users SET brevo_account_status = 'none', brevo_api_key = NULL WHERE id = ?", (user_id,))
+    conn.execute("UPDATE brevo_applications SET status = 'rejected' WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "User Brevo approval revoked. Email panel locked."}
+
 # ── Admin User Management / Credits ─────────────────────
 
 @app.get("/api/admin/users")
 def get_all_users(admin_user: dict = Depends(get_admin_user)):
     conn = get_db()
-    users = conn.execute("SELECT id, email, full_name, role, credits, is_banned, warning_message, created_at FROM users").fetchall()
+    users = conn.execute("SELECT id, email, full_name, role, credits, is_banned, warning_message, brevo_api_key, brevo_account_status, daily_email_limit, created_at FROM users").fetchall()
     conn.close()
     return [dict(u) for u in users]
 
