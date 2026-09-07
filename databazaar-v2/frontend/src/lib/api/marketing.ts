@@ -40,6 +40,9 @@ export const marketingApi = {
   listCampaigns: () =>
     apiClient.get<Campaign[]>("/api/marketing/campaigns"),
 
+  activeCampaigns: () =>
+    apiClient.get<{ active_campaigns: Campaign[] }>("/api/marketing/active-campaigns"),
+
   dashboardStats: () =>
     apiClient.get<DashboardStats>("/api/marketing/dashboard-stats"),
 

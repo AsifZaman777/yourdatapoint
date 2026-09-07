@@ -6,11 +6,9 @@ import uuid
 import base64
 import glob
 import threading
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Union
 from fastapi import FastAPI, Depends, HTTPException, status, Header, BackgroundTasks, UploadFile, File, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, FileResponse
@@ -183,76 +181,53 @@ class UserBrevoConfigRequest(BaseModel):
 class BrevoActivateLinkRequest(BaseModel):
     activation_url: str
 
-# ── Free Brevo / SMTP Helper ─────────────────────────────
+# ── Free Brevo API Helper ────────────────────────────────
 
 def send_free_verification_email(recipient_email: str, full_name: str, verify_link: str):
     brevo_api_key = os.getenv("BREVO_API_KEY", "")
-    smtp_server = os.getenv("SMTP_SERVER", "smtp-relay.brevo.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER", "asifdev777@gmail.com")
-    smtp_pass = os.getenv("SMTP_PASSWORD", os.getenv("BREVO_SMTP_KEY", ""))
+    sender_email = os.getenv("SENDER_EMAIL", os.getenv("SUPPORT_EMAIL", os.getenv("SMTP_USER", "asifdev777@gmail.com")))
 
     html_body = get_verification_email_html(full_name, verify_link)
     last_error = ""
 
-    # 1. Try Brevo REST API if API Key is set
-    if brevo_api_key:
-        try:
-            import urllib.request
-            url = "https://api.brevo.com/v3/smtp/email"
-            payload = {
-                "sender": {"name": "MarketingOstad Platform", "email": smtp_user},
-                "to": [{"email": recipient_email, "name": full_name}],
-                "subject": "Verify Your MarketingOstad Account Email",
-                "htmlContent": html_body
+    if not brevo_api_key:
+        return False, "BREVO_API_KEY is not configured in backend .env file."
+
+    # Use Brevo REST API directly (no SMTP)
+    try:
+        import urllib.request
+        url = "https://api.brevo.com/v3/smtp/email"
+        payload = {
+            "sender": {"name": "MarketingOstad Platform", "email": sender_email},
+            "to": [{"email": recipient_email, "name": full_name}],
+            "subject": "Verify Your MarketingOstad Account Email",
+            "htmlContent": html_body
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "accept": "application/json",
+                "api-key": brevo_api_key,
+                "content-type": "application/json"
             }
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={
-                    "accept": "application/json",
-                    "api-key": brevo_api_key,
-                    "content-type": "application/json"
-                }
-            )
-            with urllib.request.urlopen(req) as resp:
-                if resp.status in (200, 201):
-                    print(f"[BREVO API SUCCESS] Verification email sent to {recipient_email} via Brevo!")
-                    return True, ""
-        except urllib.error.HTTPError as ex:
-            err_body = ex.read().decode("utf-8")
-            print(f"[BREVO API ERROR] {ex.code}: {err_body}")
-            try:
-                err_json = json.loads(err_body)
-                last_error = err_json.get("message", str(ex))
-            except Exception:
-                last_error = f"HTTP {ex.code}: {err_body}"
-        except Exception as ex:
-            print(f"[BREVO API ERROR] {ex}")
-            last_error = str(ex)
-
-    # 2. Try SMTP (Brevo SMTP or custom SMTP) if password/key is set
-    if smtp_pass:
+        )
+        with urllib.request.urlopen(req) as resp:
+            if resp.status in (200, 201):
+                print(f"[BREVO API SUCCESS] Verification email sent to {recipient_email} via Brevo API!")
+                return True, ""
+    except urllib.error.HTTPError as ex:
+        err_body = ex.read().decode("utf-8")
+        print(f"[BREVO API ERROR] {ex.code}: {err_body}")
         try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = "Verify Your MarketingOstad Account Email"
-            msg["From"] = f"MarketingOstad Platform <{smtp_user}>"
-            msg["To"] = recipient_email
-            msg.attach(MIMEText(html_body, "html"))
+            err_json = json.loads(err_body)
+            last_error = err_json.get("message", str(ex))
+        except Exception:
+            last_error = f"HTTP {ex.code}: {err_body}"
+    except Exception as ex:
+        print(f"[BREVO API ERROR] {ex}")
+        last_error = str(ex)
 
-            with smtplib.SMTP(smtp_server, smtp_port) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.sendmail(smtp_user, recipient_email, msg.as_string())
-            print(f"[BREVO / SMTP SUCCESS] Verification email sent to {recipient_email} via {smtp_server}!")
-            return True, ""
-        except Exception as e:
-            print(f"[SMTP ERROR] Failed to send email via {smtp_server}: {e}")
-            last_error = str(e)
-
-    if not last_error:
-        last_error = "Brevo API key or SMTP password is missing in backend .env file."
-        
     return False, last_error
 
 # ── Auth Endpoints ───────────────────────────────────────
@@ -271,7 +246,7 @@ def register(req: RegisterRequest, request: Request):
     base_url = FRONTEND_URL
     if not base_url and request and request.headers.get("origin"):
         base_url = request.headers.get("origin").rstrip("/")
-    verify_link = f"{base_url}/?verify_token={v_token}"
+    verify_link = f"{base_url}/auth?verify_token={v_token}"
     
     # 1. SEND EMAIL FIRST - DO NOT INSERT TO DATABASE IF EMAIL DISPATCH FAILS!
     email_dispatched, err_msg = send_free_verification_email(req.email, req.full_name, verify_link)
@@ -283,12 +258,20 @@ def register(req: RegisterRequest, request: Request):
         )
 
     # 2. ONLY INSERT USER INTO DATABASE WHEN VERIFICATION EMAIL IS SENT SUCCESSFULLY!
-    conn.execute(
-        "INSERT INTO users (email, full_name, password_hash, role, credits, is_verified, verification_token) VALUES (?, ?, ?, 'user', 5, 0, ?)",
-        (req.email, req.full_name, pwd_hash, v_token)
-    )
-    conn.commit()
-    user = conn.execute("SELECT * FROM users WHERE email = ?", (req.email,)).fetchone()
+    try:
+        conn.execute(
+            "INSERT INTO users (email, full_name, password_hash, role, credits, is_verified, verification_token) VALUES (?, ?, ?, 'user', 5, 0, ?)",
+            (req.email, req.full_name, pwd_hash, v_token)
+        )
+        conn.commit()
+        user = conn.execute("SELECT * FROM users WHERE email = ?", (req.email,)).fetchone()
+    except Exception as db_err:
+        conn.close()
+        print(f"[REGISTRATION DB ERROR] {db_err}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error during registration: {db_err}"
+        )
     conn.close()
     
     return {
@@ -296,7 +279,7 @@ def register(req: RegisterRequest, request: Request):
         "requires_verification": True,
         "email_dispatched": True,
         "message": f"Verification email successfully sent to {req.email}! Please check your inbox and click the verification link.",
-        "email": user["email"]
+        "email": user["email"] if user else req.email
     }
 
 @app.get("/api/auth/verify-email")
@@ -346,7 +329,7 @@ def resend_verification(req: ResendVerificationRequest, request: Request):
     base_url = FRONTEND_URL
     if not base_url and request and request.headers.get("origin"):
         base_url = request.headers.get("origin").rstrip("/")
-    verify_link = f"{base_url}/?verify_token={v_token}"
+    verify_link = f"{base_url}/auth?verify_token={v_token}"
     email_dispatched, err_msg = send_free_verification_email(req.email, user["full_name"], verify_link)
     if not email_dispatched:
         raise HTTPException(status_code=400, detail=f"Failed to resend email: {err_msg}")
@@ -1121,20 +1104,6 @@ def send_custom_notification(recipient_email: str, recipient_phone: str, subject
                 except Exception as e:
                     print(f"[BREVO NOTIF ERROR] {e}")
 
-            if not sent_email and smtp_pass:
-                try:
-                    msg = MIMEMultipart("alternative")
-                    msg["Subject"] = subject
-                    msg["From"] = f"MarketingOstad Team <{smtp_user}>"
-                    msg["To"] = recipient_email
-                    msg.attach(MIMEText(html_body, "html"))
-                    with smtplib.SMTP(smtp_server, smtp_port) as server:
-                        server.starttls()
-                        server.login(smtp_user, smtp_pass)
-                        server.sendmail(smtp_user, recipient_email, msg.as_string())
-                    sent_email = True
-                except Exception as e:
-                    print(f"[SMTP NOTIF ERROR] {e}")
         except Exception as e:
             print(f"[NOTIF EMAIL GENERAL EXCEPTION] {e}")
 
@@ -1800,9 +1769,20 @@ def send_whatsapp(req: WhatsAppCampaignRequest, current_user: dict = Depends(get
     if not contacts:
         raise HTTPException(status_code=400, detail="No contacts selected or found in dataset.")
 
+    conn = get_db()
+    # Check if a WhatsApp campaign is already running
+    active_wa = conn.execute(
+        "SELECT id FROM marketing_campaigns WHERE status = 'running' AND campaign_type = 'whatsapp'"
+    ).fetchone()
+    if active_wa:
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail=f"WhatsApp Campaign #{active_wa['id']} is currently running! Please wait for it to finish or stop it before launching a new campaign."
+        )
+
     # Deduct credits
     start_index = 0
-    conn = get_db()
     if req.resume:
         chk = conn.execute("SELECT last_index FROM whatsapp_progress WHERE recipient_group = ?", (req.recipient_group,)).fetchone()
         if chk:
@@ -1955,6 +1935,103 @@ def get_recipient_contacts(recipient_group: str, current_user: dict = Depends(ge
 
     return {"success": True, "total": len(contacts), "contacts": contacts}
 
+def compute_campaign_eta(campaign_type: str, sent_count: int, total_count: int, start_row: int = 0, created_at: str = None):
+    """
+    Computes approximate estimated time to completion (EST) for marketing campaigns.
+    Factors in human-like typing, page load, randomized delay, and cool-down breaks.
+    """
+    remaining = max(0, total_count - sent_count)
+    progress_pct = min(100, round((sent_count / total_count) * 100)) if total_count > 0 else 0
+
+    if remaining == 0:
+        return {
+            "est_seconds_remaining": 0,
+            "est_human": "Completed",
+            "est_completion_time": None,
+            "progress_percent": 100
+        }
+
+    if campaign_type == "whatsapp":
+        cooldown_cycles = remaining // 8
+        cooldown_secs = cooldown_cycles * 120
+
+        est_seconds = 0
+        contacts_sent_now = max(0, sent_count - (start_row or 0))
+        if contacts_sent_now >= 2 and created_at:
+            try:
+                dt_created = datetime.strptime(str(created_at).split(".")[0], "%Y-%m-%d %H:%M:%S")
+                elapsed = (datetime.now() - dt_created).total_seconds()
+                if elapsed > 0:
+                    rate = elapsed / contacts_sent_now
+                    rate = max(16.0, min(60.0, rate))
+                    est_seconds = int(remaining * rate)
+            except Exception:
+                est_seconds = int(remaining * 22 + cooldown_secs)
+
+        if est_seconds <= 0:
+            est_seconds = int(remaining * 22 + cooldown_secs)
+    else:
+        est_seconds = max(1, int(remaining * 0.5))
+
+    if est_seconds < 60:
+        est_human = f"~{max(5, est_seconds)}s remaining"
+    elif est_seconds < 3600:
+        mins = est_seconds // 60
+        secs = est_seconds % 60
+        est_human = f"~{mins}m {secs}s remaining" if secs > 0 else f"~{mins}m remaining"
+    else:
+        hrs = est_seconds // 3600
+        mins = (est_seconds % 3600) // 60
+        est_human = f"~{hrs}h {mins}m remaining"
+
+    comp_dt = datetime.now() + timedelta(seconds=est_seconds)
+    clock_time = comp_dt.strftime("%I:%M %p")
+    est_human_with_clock = f"{est_human} (Est. {clock_time})"
+
+    return {
+        "est_seconds_remaining": est_seconds,
+        "est_human": est_human_with_clock,
+        "est_completion_time": comp_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "progress_percent": progress_pct
+    }
+
+@app.get("/api/marketing/active-campaigns")
+def get_active_campaigns(current_user: dict = Depends(get_current_user)):
+    conn = get_db()
+    if current_user["role"] in ("admin", "superadmin"):
+        rows = conn.execute("""
+            SELECT c.*, u.email, u.full_name FROM marketing_campaigns c
+            JOIN users u ON c.user_id = u.id
+            WHERE c.status IN ('running', 'stopping')
+            ORDER BY c.created_at DESC
+        """).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT * FROM marketing_campaigns
+            WHERE user_id = ? AND status IN ('running', 'stopping')
+            ORDER BY created_at DESC
+        """, (current_user["id"],)).fetchall()
+
+    active_list = []
+    for r in rows:
+        cdict = dict(r)
+        eta_info = compute_campaign_eta(
+            cdict.get("campaign_type", "whatsapp"),
+            cdict.get("sent_count", 0),
+            cdict.get("total_count", 0),
+            cdict.get("start_row", 0),
+            cdict.get("created_at")
+        )
+        cdict.update(eta_info)
+        last_log = conn.execute(
+            "SELECT message FROM campaign_logs WHERE campaign_id = ? ORDER BY id DESC LIMIT 1",
+            (cdict["id"],)
+        ).fetchone()
+        cdict["latest_log"] = last_log["message"] if last_log else "Dispatch worker initialized..."
+        active_list.append(cdict)
+    conn.close()
+    return {"active_campaigns": active_list}
+
 @app.get("/api/marketing/campaigns")
 def list_campaigns(current_user: dict = Depends(get_current_user)):
     conn = get_db()
@@ -1967,7 +2044,20 @@ def list_campaigns(current_user: dict = Depends(get_current_user)):
     else:
         rows = conn.execute("SELECT * FROM marketing_campaigns WHERE user_id = ? ORDER BY created_at DESC", (current_user["id"],)).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+
+    result = []
+    for r in rows:
+        cdict = dict(r)
+        eta_info = compute_campaign_eta(
+            cdict.get("campaign_type", "whatsapp"),
+            cdict.get("sent_count", 0),
+            cdict.get("total_count", 0),
+            cdict.get("start_row", 0),
+            cdict.get("created_at")
+        )
+        cdict.update(eta_info)
+        result.append(cdict)
+    return result
 
 @app.get("/api/marketing/whatsapp-campaign/{campaign_id}")
 def get_campaign_status(campaign_id: str, current_user: dict = Depends(get_current_user)):
@@ -1978,28 +2068,52 @@ def get_campaign_status(campaign_id: str, current_user: dict = Depends(get_curre
         raise HTTPException(status_code=404, detail="Campaign not found.")
     logs = conn.execute("SELECT message, created_at FROM campaign_logs WHERE campaign_id = ? ORDER BY id ASC", (campaign_id,)).fetchall()
     conn.close()
+
+    sent_cnt = c["sent_count"] or 0
+    total_cnt = c["total_count"] or 0
+    start_row = c.get("start_row", 0) if isinstance(c, dict) else (c["start_row"] if "start_row" in c.keys() else 0)
+    failed_cnt = c.get("failed_count", 0) if isinstance(c, dict) else (c["failed_count"] if "failed_count" in c.keys() else 0)
+
+    eta_info = compute_campaign_eta(
+        c.get("campaign_type", "whatsapp") if isinstance(c, dict) else (c["campaign_type"] if "campaign_type" in c.keys() else "whatsapp"),
+        sent_cnt,
+        total_cnt,
+        start_row,
+        c.get("created_at") if isinstance(c, dict) else (c["created_at"] if "created_at" in c.keys() else None)
+    )
+
     return {
+        "campaign_id": campaign_id,
+        "campaign_type": c.get("campaign_type", "whatsapp") if isinstance(c, dict) else (c["campaign_type"] if "campaign_type" in c.keys() else "whatsapp"),
+        "recipient_group": c.get("recipient_group", "") if isinstance(c, dict) else (c["recipient_group"] if "recipient_group" in c.keys() else ""),
         "status": c["status"],
-        "total": c["total_count"],
-        "sent": c["sent_count"],
-        "failed": c.get("failed_count", 0) if isinstance(c, dict) else (c["failed_count"] if "failed_count" in c.keys() else 0),
-        "start_row": c.get("start_row", 0) if isinstance(c, dict) else (c["start_row"] if "start_row" in c.keys() else 0),
+        "total": total_cnt,
+        "sent": sent_cnt,
+        "failed": failed_cnt,
+        "start_row": start_row,
+        "est_seconds_remaining": eta_info["est_seconds_remaining"],
+        "est_human": eta_info["est_human"],
+        "est_completion_time": eta_info["est_completion_time"],
+        "progress_percent": eta_info["progress_percent"],
         "logs": [f"[{l['created_at'].split(' ')[1] if ' ' in l['created_at'] else l['created_at']}] {l['message']}" for l in logs]
     }
 
 @app.post("/api/marketing/whatsapp-campaign/{campaign_id}/stop")
 def stop_campaign(campaign_id: str, current_user: dict = Depends(get_current_user)):
+    from senders import force_stop_campaign
+    force_stop_campaign(campaign_id)
+
     conn = get_db()
     c = conn.execute("SELECT status FROM marketing_campaigns WHERE id = ?", (campaign_id,)).fetchone()
     if not c:
         conn.close()
         raise HTTPException(status_code=404, detail="Campaign not found.")
         
-    conn.execute("UPDATE marketing_campaigns SET status = 'stopping' WHERE id = ?", (campaign_id,))
-    conn.execute("INSERT INTO campaign_logs (campaign_id, message) VALUES (?, ?)", (campaign_id, "User requested manual campaign termination."))
+    conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
+    conn.execute("INSERT INTO campaign_logs (campaign_id, message) VALUES (?, ?)", (campaign_id, "User requested manual campaign termination (stopped immediately)."))
     conn.commit()
     conn.close()
-    return {"success": True}
+    return {"success": True, "message": "Campaign stopped immediately."}
 
 @app.delete("/api/marketing/campaign/{campaign_id}")
 def delete_campaign(campaign_id: str, current_user: dict = Depends(get_current_user)):
@@ -2581,13 +2695,30 @@ def dashboard_stats(current_user: dict = Depends(get_current_user)):
         campaigns = conn.execute("SELECT * FROM marketing_campaigns WHERE user_id = ? ORDER BY created_at DESC", (current_user["id"],)).fetchall()
     conn.close()
     
-    campaigns_list = [dict(c) for c in campaigns]
+    campaigns_list = []
+    for c in campaigns:
+        cdict = dict(c)
+        eta_info = compute_campaign_eta(
+            cdict.get("campaign_type", "whatsapp"),
+            cdict.get("sent_count", 0),
+            cdict.get("total_count", 0),
+            cdict.get("start_row", 0),
+            cdict.get("created_at")
+        )
+        cdict.update(eta_info)
+        if cdict.get("status") in ("running", "stopping"):
+            last_log = conn.execute(
+                "SELECT message FROM campaign_logs WHERE campaign_id = ? ORDER BY id DESC LIMIT 1",
+                (cdict["id"],)
+            ).fetchone()
+            cdict["latest_log"] = last_log["message"] if last_log else "Dispatch worker running..."
+        campaigns_list.append(cdict)
     
     total_campaigns = len(campaigns_list)
     total_sent = sum(c.get("sent_count", 0) for c in campaigns_list)
     total_contacts = sum(c.get("total_count", 0) for c in campaigns_list)
     total_failed = sum(c.get("failed_count", 0) for c in campaigns_list)
-    total_remaining = total_contacts - total_sent
+    total_remaining = max(0, total_contacts - total_sent)
     
     wa_count = len([c for c in campaigns_list if c["campaign_type"] == "whatsapp"])
     email_count = len([c for c in campaigns_list if c["campaign_type"] == "email"])
@@ -2597,7 +2728,7 @@ def dashboard_stats(current_user: dict = Depends(get_current_user)):
         s = c["status"]
         status_counts[s] = status_counts.get(s, 0) + 1
     
-    active_count = len([c for c in campaigns_list if c["status"] == "running"])
+    active_count = len([c for c in campaigns_list if c["status"] in ("running", "stopping")])
     done_count = status_counts.get("done", 0)
     success_rate = round((done_count / total_campaigns * 100), 1) if total_campaigns > 0 else 0
     

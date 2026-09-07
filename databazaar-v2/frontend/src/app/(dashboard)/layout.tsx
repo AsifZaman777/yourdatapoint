@@ -6,6 +6,7 @@ import { AlertTriangle } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { useAuth } from "@/providers/auth-provider";
 import { PaymentWizardModal } from "@/components/payment/payment-wizard-modal";
+import { LiveCampaignTracker } from "@/components/marketing/live-campaign-tracker";
 
 export default function DashboardLayout({
   children,
@@ -67,6 +68,9 @@ export default function DashboardLayout({
         open={paymentModalOpen}
         onClose={() => setPaymentModalOpen(false)}
       />
+
+      {/* Persistent Live Campaign Background Tracker */}
+      <LiveCampaignTracker />
     </div>
   );
 }

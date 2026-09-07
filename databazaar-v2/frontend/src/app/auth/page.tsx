@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { TopNavbar } from "@/components/layout/top-navbar";
 import { Footer } from "@/components/layout/footer";
@@ -15,16 +15,21 @@ function AuthContent() {
   const router = useRouter();
   const [view, setView] = useState<"login" | "register">("login");
   const [verificationNotice, setVerificationNotice] = useState("");
+  const verifiedRef = useRef(false);
 
   // Handle URL verification token auto-verify
   useEffect(() => {
     const verifyToken = searchParams.get("verify_token");
-    if (verifyToken) {
+    if (verifyToken && !verifiedRef.current) {
+      verifiedRef.current = true;
       authApi
         .verifyEmail(verifyToken)
         .then((res) => {
           if (res.data.success) {
             toast.success(res.data.message || "Email verified! You can now log in.");
+            setVerificationNotice(res.data.message);
+          } else if (res.data.already_verified) {
+            toast.info("Account is already verified. Please sign in.");
             setVerificationNotice(res.data.message);
           } else {
             toast.warning(res.data.message || "Invalid or expired verification link.");

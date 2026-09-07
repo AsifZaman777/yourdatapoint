@@ -12,7 +12,7 @@ export const authApi = {
     apiClient.get<User>("/api/auth/me"),
 
   verifyEmail: (token: string) =>
-    apiClient.get<{ success: boolean; message: string }>(
+    apiClient.get<{ success: boolean; message: string; already_verified?: boolean }>(
       `/api/auth/verify-email?token=${encodeURIComponent(token)}`
     ),
 

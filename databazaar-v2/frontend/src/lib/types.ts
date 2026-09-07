@@ -113,11 +113,19 @@ export interface ScraperJobStatus {
 
 // ── Marketing ──
 export interface CampaignProgress {
-  campaign_id: number;
-  status: "running" | "done" | "failed" | "stopped" | "stopping";
+  campaign_id: number | string;
+  campaign_type?: string;
+  recipient_group?: string;
+  status: "running" | "done" | "failed" | "stopped" | "stopping" | string;
   total: number;
   sent: number;
-  failed_count: number;
+  failed?: number;
+  failed_count?: number;
+  start_row?: number;
+  est_seconds_remaining?: number;
+  est_human?: string;
+  est_completion_time?: string;
+  progress_percent?: number;
   logs: CampaignLog[];
 }
 
@@ -142,7 +150,13 @@ export interface Campaign {
   sent?: number;
   sent_count?: number;
   failed_count?: number;
+  start_row?: number;
   created_at?: string;
+  est_seconds_remaining?: number;
+  est_human?: string;
+  est_completion_time?: string;
+  progress_percent?: number;
+  latest_log?: string;
 }
 
 export interface DashboardStats {

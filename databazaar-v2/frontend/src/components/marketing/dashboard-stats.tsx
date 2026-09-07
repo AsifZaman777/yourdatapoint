@@ -14,10 +14,12 @@ import {
   Terminal,
   RefreshCw,
   Zap,
+  Clock,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmModal } from "@/components/ui/modal-confirm";
 import { marketingApi } from "@/lib/api/marketing";
 import { toast } from "sonner";
 import type { DashboardStats as StatsType } from "@/lib/types";
@@ -30,6 +32,8 @@ interface DashboardStatsProps {
 export function DashboardStats({ stats, onRefresh }: DashboardStatsProps) {
   const [activeLogs, setActiveLogs] = useState<string[]>([]);
   const [stoppingCampaignId, setStoppingCampaignId] = useState<string | number | null>(null);
+  const [stopModalOpen, setStopModalOpen] = useState(false);
+  const [targetStopCampaignId, setTargetStopCampaignId] = useState<string | number | null>(null);
 
   const totalCampaigns = stats?.total_campaigns ?? 0;
   const totalSent = stats?.total_sent ?? 0;
@@ -51,9 +55,9 @@ export function DashboardStats({ stats, onRefresh }: DashboardStatsProps) {
     { label: "Failed / Bounced", value: totalFailed, color: "#f43f5e", percent: totalContacts > 0 ? Math.round((totalFailed / totalContacts) * 100) : 0 },
   ];
 
-  // Auto poll logs for active campaigns
+  // Auto poll logs & live stats whenever campaigns are active
   useEffect(() => {
-    const runningCamps = stats?.campaigns?.filter((c) => c.status === "running") || [];
+    const runningCamps = stats?.campaigns?.filter((c) => c.status === "running" || c.status === "stopping") || [];
     if (runningCamps.length > 0) {
       const campId = runningCamps[0].id;
       marketingApi
@@ -69,19 +73,33 @@ export function DashboardStats({ stats, onRefresh }: DashboardStatsProps) {
           }
         })
         .catch(() => {});
-    }
-  }, [stats]);
 
-  const handleStopCampaign = async (campaignId: string | number) => {
-    setStoppingCampaignId(campaignId);
+      const pollTimer = setInterval(() => {
+        if (onRefresh) onRefresh();
+      }, 2500);
+
+      return () => clearInterval(pollTimer);
+    }
+  }, [stats, onRefresh]);
+
+  const handleRequestStopCampaign = (campaignId: string | number) => {
+    setTargetStopCampaignId(campaignId);
+    setStopModalOpen(true);
+  };
+
+  const confirmStopCampaign = async () => {
+    if (!targetStopCampaignId) return;
+    setStoppingCampaignId(targetStopCampaignId);
     try {
-      await marketingApi.stopCampaign(campaignId);
-      toast.success(`Campaign ${campaignId} stop request dispatched!`);
+      await marketingApi.stopCampaign(targetStopCampaignId);
+      toast.success("Campaign stopped immediately.");
       if (onRefresh) onRefresh();
     } catch {
       toast.error("Failed to stop campaign.");
     } finally {
       setStoppingCampaignId(null);
+      setStopModalOpen(false);
+      setTargetStopCampaignId(null);
     }
   };
 
@@ -193,40 +211,113 @@ export function DashboardStats({ stats, onRefresh }: DashboardStatsProps) {
             </div>
           </div>
 
-          {/* Active Campaigns Stop Control List */}
-          {stats?.campaigns && stats.campaigns.filter((c) => c.status === "running").length > 0 && (
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-3 mt-4">
-              <div className="flex items-center justify-between text-xs font-semibold text-rose-300">
+          {/* Active Running Campaigns Live Monitor Command Center */}
+          {stats?.campaigns && stats.campaigns.filter((c) => c.status === "running" || c.status === "stopping").length > 0 && (
+            <div className="p-4 rounded-xl bg-gradient-to-br from-rose-950/40 via-background/90 to-card border border-rose-500/40 shadow-xl space-y-3.5 mt-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-rose-300">
                 <span className="flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-rose-400 animate-spin" />
-                  Active Running Campaigns ({stats.campaigns.filter((c) => c.status === "running").length})
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
+                  </span>
+                  <span>Active Running Campaigns ({stats.campaigns.filter((c) => c.status === "running" || c.status === "stopping").length})</span>
                 </span>
-                <span className="text-[11px] font-mono text-muted-foreground">Manual Stop Control Available</span>
+                <span className="text-[11px] font-mono text-cyan-400 bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 rounded-full flex items-center gap-1.5">
+                  <Activity className="h-3 w-3 animate-pulse" /> Live Real-Time Dispatch Stream
+                </span>
               </div>
 
               {stats.campaigns
-                .filter((c) => c.status === "running")
-                .map((c) => (
-                  <div key={c.id} className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg bg-background/80 border border-rose-500/20 text-xs">
-                    <div>
-                      <strong className="text-foreground uppercase font-mono">{c.campaign_type}</strong> - {c.recipient_group}
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
-                        Dispatched: <span className="text-cyan-400 font-mono font-bold">{c.sent_count}</span> / {c.total_count} leads
-                      </div>
-                    </div>
+                .filter((c) => c.status === "running" || c.status === "stopping")
+                .map((c) => {
+                  const isWa = (c.campaign_type || c.type) === "whatsapp";
+                  const sentCnt = c.sent_count ?? c.sent ?? 0;
+                  const totalCnt = c.total_count ?? c.total ?? 1;
+                  const pct = c.progress_percent ?? (totalCnt > 0 ? Math.min(100, Math.round((sentCnt / totalCnt) * 100)) : 0);
+                  const isStop = c.status === "stopping" || stoppingCampaignId === c.id;
 
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      disabled={stoppingCampaignId === c.id}
-                      onClick={() => handleStopCampaign(c.id)}
-                      className="h-8 text-xs font-bold gap-1.5 bg-rose-600 hover:bg-rose-500 text-white shadow-lg"
+                  return (
+                    <div
+                      key={c.id}
+                      className="p-3.5 rounded-xl bg-card/80 border border-rose-500/30 hover:border-rose-400/50 transition-all space-y-3 text-xs"
                     >
-                      <Square className="h-3.5 w-3.5 fill-current" />
-                      {stoppingCampaignId === c.id ? "Stopping..." : "Stop Campaign Now"}
-                    </Button>
-                  </div>
-                ))}
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge
+                              variant="outline"
+                              className={
+                                isWa
+                                  ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10 text-[10px] font-bold uppercase"
+                                  : "border-purple-500/40 text-purple-400 bg-purple-500/10 text-[10px] font-bold uppercase"
+                              }
+                            >
+                              {isWa ? "WhatsApp" : "Email"}
+                            </Badge>
+                            <span className="font-bold text-foreground text-sm">
+                              {c.recipient_group}
+                            </span>
+                            <span className="text-[10px] font-mono text-muted-foreground">
+                              #{c.id}
+                            </span>
+                          </div>
+
+                          <div className="text-xs text-muted-foreground font-mono flex items-center gap-3 flex-wrap pt-0.5">
+                            <span>
+                              Dispatched:{" "}
+                              <strong className="text-cyan-400 text-sm font-bold">{sentCnt}</strong> / {totalCnt} leads
+                            </span>
+                            <span className="text-emerald-400 font-bold">({pct}%)</span>
+                            {c.failed_count !== undefined && c.failed_count > 0 && (
+                              <span className="text-rose-400 font-medium">
+                                ({c.failed_count} unreachable/failed)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* EST to complete box & Stop Button */}
+                        <div className="flex items-center gap-3">
+                          <div className="px-3 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-500/30 font-mono text-right">
+                            <div className="text-[10px] text-muted-foreground flex items-center gap-1 justify-end">
+                              <Clock className="h-3 w-3 text-cyan-400" /> EST to Complete:
+                            </div>
+                            <div className="text-xs font-extrabold text-cyan-300">
+                              {c.est_human || "Calculating..."}
+                            </div>
+                          </div>
+
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={isStop}
+                            onClick={() => handleRequestStopCampaign(c.id)}
+                            className="h-9 px-3 text-xs font-bold gap-1.5 bg-rose-600 hover:bg-rose-500 text-white shadow-lg shrink-0"
+                          >
+                            <Square className="h-3.5 w-3.5 fill-current" />
+                            {isStop ? "Stopping..." : "Stop Campaign"}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Mini animated progress bar */}
+                      <div className="w-full h-2 bg-secondary/80 rounded-full overflow-hidden border border-border/40 p-0.5">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-500"
+                          style={{ width: `${Math.max(4, pct)}%` }}
+                        />
+                      </div>
+
+                      {/* Latest log snippet */}
+                      {c.latest_log && (
+                        <div className="px-2.5 py-1.5 rounded-md bg-black/60 border border-border/30 font-mono text-[11px] text-emerald-400 truncate flex items-center gap-1.5">
+                          <span className="text-cyan-400 shrink-0">&gt;</span>
+                          <span className="truncate">{c.latest_log}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
           )}
         </CardContent>
@@ -409,6 +500,16 @@ export function DashboardStats({ stats, onRefresh }: DashboardStatsProps) {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmModal
+        open={stopModalOpen}
+        onClose={() => setStopModalOpen(false)}
+        onConfirm={confirmStopCampaign}
+        title="Stop Active Campaign?"
+        description="Are you sure you want to stop this running campaign immediately? All further dispatches will halt right away."
+        confirmText="Stop Campaign"
+        isDanger
+      />
     </div>
   );
 }

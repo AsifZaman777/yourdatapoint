@@ -49,7 +49,7 @@ export function EmailBuilder({
 }: EmailBuilderProps) {
   const { isAdmin } = useAuth();
   const [brevoInfo, setBrevoInfo] = useState<{
-    status: "none" | "pending" | "pending_email_verification" | "approved" | "rejected";
+    status: "none" | "pending" | "pending_email_verification" | "email_verified" | "approved" | "rejected";
     api_key?: string;
     daily_limit: number;
     today_sent: number;

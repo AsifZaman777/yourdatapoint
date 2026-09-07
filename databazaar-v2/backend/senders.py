@@ -63,6 +63,29 @@ def close_active_setup_driver():
             pass
         _active_setup_driver = None
 
+_active_campaign_drivers = {}
+_stopped_campaign_ids = set()
+
+def register_campaign_driver(campaign_id: str, driver):
+    _active_campaign_drivers[str(campaign_id)] = driver
+
+def unregister_campaign_driver(campaign_id: str):
+    _active_campaign_drivers.pop(str(campaign_id), None)
+
+def is_campaign_stopped(campaign_id: str) -> bool:
+    return str(campaign_id) in _stopped_campaign_ids
+
+def force_stop_campaign(campaign_id: str):
+    """Immediately stops campaign: closes browser and marks campaign stopped in memory"""
+    cid = str(campaign_id)
+    _stopped_campaign_ids.add(cid)
+    driver = _active_campaign_drivers.pop(cid, None)
+    if driver:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+
 def cleanup_profile_locks(profile_path):
     """Remove Chrome Singleton locks that cause Chrome to drop persistent profile sessions"""
     lock_files = [
@@ -189,6 +212,115 @@ def type_text_safely(driver, element, text, wpm=40):
             if word and word[-1] in ('.', ',', '!', '?', ':', '।'):
                 time.sleep(random.uniform(0.5, 1.2))
 
+def check_and_dismiss_invalid_modal(driver):
+    """
+    Rapidly checks if WhatsApp Web has displayed an invalid number / alert dialog.
+    If found, automatically clicks the OK / Dismiss button and returns True.
+    Executes directly in the browser via JavaScript and ActionChains so no human intervention is needed.
+    """
+    js_dismiss = """
+    try {
+        function triggerClick(el) {
+            if (!el) return;
+            try { el.focus(); } catch(e) {}
+            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(function(evt) {
+                try {
+                    el.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                } catch(e) {}
+            });
+            try { el.click(); } catch(e) {}
+        }
+
+        // 1. Check for explicit dialog containers (WhatsApp Web alert modals)
+        const dialogSelectors = [
+            'div[role="dialog"]',
+            'div[data-animate-modal-popup="true"]',
+            'div[data-testid="confirm-popup"]',
+            'div[data-testid="popup-contents"]',
+            'div[class*="popup"]',
+            'div[class*="modal"]'
+        ];
+        
+        for (const sel of dialogSelectors) {
+            const dialogs = document.querySelectorAll(sel);
+            for (const dialog of dialogs) {
+                // Find any clickable button in this dialog
+                const buttons = dialog.querySelectorAll('button, div[role="button"], [data-testid="popup-controls-ok"]');
+                if (buttons.length > 0) {
+                    for (const btn of buttons) {
+                        triggerClick(btn);
+                    }
+                    return { dismissed: true, source: 'dialog_button' };
+                }
+            }
+        }
+
+        // 2. Look for any visible button with "OK", "Ok", "Okay", or "ঠিক আছে"
+        const allButtons = document.querySelectorAll('button, div[role="button"]');
+        for (const btn of allButtons) {
+            const txt = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+            if (txt === 'ok' || txt === 'okay' || txt === 'ঠিক আছে' || txt === 'dismiss' || txt === 'close') {
+                const rect = btn.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                    triggerClick(btn);
+                    return { dismissed: true, source: 'ok_text_button' };
+                }
+            }
+        }
+
+        // 3. Check page text indicators for invalid number modal
+        const bodyText = (document.body ? (document.body.innerText || document.body.textContent || '') : '').toLowerCase();
+        if (
+            bodyText.includes('phone number shared via url is invalid') ||
+            bodyText.includes("isn't on whatsapp") ||
+            bodyText.includes('not on whatsapp') ||
+            bodyText.includes('url is invalid') ||
+            bodyText.includes("couldn't find this phone number") ||
+            bodyText.includes('phone number is invalid')
+        ) {
+            if (document.activeElement && typeof document.activeElement.click === 'function') {
+                triggerClick(document.activeElement);
+            }
+            return { dismissed: true, source: 'page_text_indicator' };
+        }
+
+        return { dismissed: false };
+    } catch(err) {
+        return { dismissed: false, error: err.toString() };
+    }
+    """
+    try:
+        res = driver.execute_script(js_dismiss)
+        if isinstance(res, dict) and res.get("dismissed"):
+            # Also dispatch keyboard Enter & Escape as reinforcement
+            try:
+                ActionChains(driver).send_keys(Keys.ENTER).perform()
+            except Exception:
+                pass
+            try:
+                ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+            except Exception:
+                pass
+            time.sleep(0.3)
+            return True
+    except Exception:
+        pass
+
+    # Native alert dialog fallback
+    try:
+        alert = driver.switch_to.alert
+        alert.accept()
+        time.sleep(0.3)
+        return True
+    except Exception:
+        pass
+
+    return False
+
+def dismiss_whatsapp_invalid_modal(driver):
+    """Wrapper maintaining compatibility with existing calls"""
+    return check_and_dismiss_invalid_modal(driver)
+
 def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group, start_index=0):
     """Core WhatsApp human-emulating thread dispatch manager"""
     
@@ -223,6 +355,7 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
     driver = None
     try:
         driver = setup_driver()
+        register_campaign_driver(campaign_id, driver)
         if not wait_for_whatsapp_login(driver):
             log_status("WhatsApp Web login verification timed out or aborted.")
             conn = get_db()
@@ -239,16 +372,23 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
             current_index = start_index + idx
 
             # Check if campaign stopped
+            if is_campaign_stopped(campaign_id):
+                log_status(f"Campaign stopped by user immediately. Paused at lead index: {current_index}.")
+                conn = get_db()
+                conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
+                conn.commit()
+                conn.close()
+                return
+
             conn = get_db()
             row = conn.execute("SELECT status FROM marketing_campaigns WHERE id = ?", (campaign_id,)).fetchone()
             conn.close()
-            if row and row["status"] == "stopping":
+            if row and row["status"] in ("stopping", "stopped"):
                 log_status(f"Campaign stopped by user. Paused at lead index: {current_index}.")
                 conn = get_db()
                 conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
                 conn.commit()
                 conn.close()
-                driver.quit()
                 return
 
             phone = contact["phone"]
@@ -260,10 +400,18 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
             if idx > 0 and idx % 8 == 0:
                 log_status("Entering 2-minute cooldown to prevent accounts bans...")
                 for _ in range(24):
+                    if is_campaign_stopped(campaign_id):
+                        log_status(f"Campaign stopped during cooldown. Paused at lead index: {current_index}.")
+                        conn = get_db()
+                        conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
+                        conn.commit()
+                        conn.close()
+                        driver.quit()
+                        return
                     conn = get_db()
                     chk = conn.execute("SELECT status FROM marketing_campaigns WHERE id = ?", (campaign_id,)).fetchone()
                     conn.close()
-                    if chk and chk["status"] == "stopping":
+                    if chk and chk["status"] in ("stopping", "stopped"):
                         log_status(f"Campaign stopped during cooldown. Paused at lead index: {current_index}.")
                         conn = get_db()
                         conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
@@ -284,7 +432,7 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
             time.sleep(2)
             save_campaign_screenshot(driver, campaign_id)
 
-            # Wait for text input panel
+            # Wait for text input panel or invalid number modal
             start_load = time.time()
             chat_ready = False
             invalid_num = False
@@ -299,13 +447,10 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
                 '//div[@contenteditable="true"]'
             ]
 
-            while time.time() - start_load < 35:
+            while time.time() - start_load < 30:
                 # Early stop check during page load
-                conn = get_db()
-                chk = conn.execute("SELECT status FROM marketing_campaigns WHERE id = ?", (campaign_id,)).fetchone()
-                conn.close()
-                if chk and chk["status"] == "stopping":
-                    log_status(f"Campaign stopped. Paused at lead index: {current_index}.")
+                if is_campaign_stopped(campaign_id):
+                    log_status(f"Campaign stopped by user immediately. Paused at lead index: {current_index}.")
                     conn = get_db()
                     conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
                     conn.commit()
@@ -313,10 +458,24 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
                     driver.quit()
                     return
 
-                page_text = driver.page_source.lower()
-                if "phone number shared via url is invalid" in page_text or "not on whatsapp" in page_text:
+                conn = get_db()
+                chk = conn.execute("SELECT status FROM marketing_campaigns WHERE id = ?", (campaign_id,)).fetchone()
+                conn.close()
+                if chk and chk["status"] in ("stopping", "stopped"):
+                    log_status(f"Campaign stopped by user. Paused at lead index: {current_index}.")
+                    conn = get_db()
+                    conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
+                    conn.commit()
+                    conn.close()
+                    driver.quit()
+                    return
+
+                # 1. Immediately detect and auto-dismiss invalid number / OK modal
+                if check_and_dismiss_invalid_modal(driver):
                     invalid_num = True
                     break
+
+                # 2. Check if chat textbox is ready
                 try:
                     for sel in textbox_selectors:
                         inputs = driver.find_elements(By.XPATH, sel)
@@ -328,21 +487,35 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
                         break
                 except Exception:
                     pass
-                time.sleep(1)
+                time.sleep(0.5)
 
             if invalid_num:
-                log_status(f"⚠️ Skipped {name}: Mobile number is not on WhatsApp.")
+                # Dismiss again to guarantee overlay is fully closed
+                check_and_dismiss_invalid_modal(driver)
+                log_status(f"⚠️ Skipped {name} ({formatted}): Number is not on WhatsApp. Closed 'OK' modal automatically.")
                 update_failed()
                 conn = get_db()
                 conn.execute("INSERT OR REPLACE INTO whatsapp_progress (recipient_group, last_index, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (recipient_group, current_index + 1))
-                conn.execute("UPDATE marketing_campaigns SET sent_count = ? WHERE id = ?", (campaign_id, current_index + 1))
+                conn.execute("UPDATE marketing_campaigns SET sent_count = ? WHERE id = ?", (current_index + 1, campaign_id))
                 conn.commit()
                 conn.close()
+                time.sleep(0.8)
                 continue
 
             if not chat_ready or not textbox:
-                log_status(f"⚠️ Failed to load chat element for {name}. Skipping...")
+                # Check one more time if invalid number modal appeared
+                if check_and_dismiss_invalid_modal(driver):
+                    log_status(f"⚠️ Skipped {name} ({formatted}): Number is not on WhatsApp. Closed 'OK' modal automatically.")
+                else:
+                    check_and_dismiss_invalid_modal(driver)
+                    log_status(f"⚠️ Could not load chat element for {name} ({formatted}). Closed any prompt & skipping...")
                 update_failed()
+                conn = get_db()
+                conn.execute("INSERT OR REPLACE INTO whatsapp_progress (recipient_group, last_index, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (recipient_group, current_index + 1))
+                conn.execute("UPDATE marketing_campaigns SET sent_count = ? WHERE id = ?", (current_index + 1, campaign_id))
+                conn.commit()
+                conn.close()
+                time.sleep(0.8)
                 continue
 
             try:
@@ -387,10 +560,18 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
                 # Settle down delay
                 delay = random.randint(10, 25)
                 for _ in range(delay // 2):
+                    if is_campaign_stopped(campaign_id):
+                        log_status(f"Campaign stopped. Paused at lead index: {current_index + 1}.")
+                        conn = get_db()
+                        conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
+                        conn.commit()
+                        conn.close()
+                        driver.quit()
+                        return
                     conn = get_db()
                     chk = conn.execute("SELECT status FROM marketing_campaigns WHERE id = ?", (campaign_id,)).fetchone()
                     conn.close()
-                    if chk and chk["status"] == "stopping":
+                    if chk and chk["status"] in ("stopping", "stopped"):
                         log_status(f"Campaign stopped. Paused at lead index: {current_index + 1}.")
                         conn = get_db()
                         conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
@@ -401,6 +582,8 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
                     time.sleep(2)
 
             except Exception as ex:
+                if is_campaign_stopped(campaign_id):
+                    return
                 log_status(f"❌ Typing process failed for {name}: {ex}")
                 update_failed()
 
@@ -412,17 +595,29 @@ def run_whatsapp_campaign(campaign_id, contacts, template_text, recipient_group,
         conn.close()
 
     except Exception as ex:
-        log_status(f"Fatal Dispatcher Thread Exception: {ex}")
+        if is_campaign_stopped(campaign_id):
+            log_status("Campaign thread terminated cleanly by user stop request.")
+            try:
+                conn = get_db()
+                conn.execute("UPDATE marketing_campaigns SET status = 'stopped' WHERE id = ?", (campaign_id,))
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+        else:
+            log_status(f"Fatal Dispatcher Thread Exception: {ex}")
+            try:
+                conn = get_db()
+                conn.execute("UPDATE marketing_campaigns SET status = 'failed' WHERE id = ?", (campaign_id,))
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+    finally:
+        unregister_campaign_driver(campaign_id)
         if driver:
             try:
                 driver.quit()
             except Exception:
                 pass
-        try:
-            conn = get_db()
-            conn.execute("UPDATE marketing_campaigns SET status = 'failed' WHERE id = ?", (campaign_id,))
-            conn.commit()
-            conn.close()
-        except Exception:
-            pass
 

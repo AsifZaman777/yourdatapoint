@@ -111,16 +111,36 @@ export function CampaignHistory({ campaigns, onRefresh }: CampaignHistoryProps) 
                   <Fragment key={c.id}>
                     <TableRow className="cursor-pointer" onClick={() => handleToggleExpand(c.id)}>
                       <TableCell className="font-mono text-xs text-muted-foreground">#{c.id}</TableCell>
-                      <TableCell className="font-semibold text-xs uppercase">{c.type}</TableCell>
+                      <TableCell className="font-semibold text-xs uppercase">{c.campaign_type || c.type || "whatsapp"}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{c.recipient_group}</TableCell>
-                      <TableCell className="font-mono text-xs text-cyan-400 font-bold">
-                        {c.sent} / {c.total} ({c.failed_count} failed)
+                      <TableCell className="font-mono text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="text-cyan-400 font-bold">
+                            {c.sent_count ?? c.sent ?? 0} / {c.total_count ?? c.total ?? 0}
+                          </span>
+                          <span className="text-muted-foreground text-[11px]">
+                            ({c.progress_percent ?? ((c.total_count ?? c.total ?? 0) > 0 ? Math.round(((c.sent_count ?? c.sent ?? 0) / (c.total_count ?? c.total ?? 1)) * 100) : 0)}%)
+                          </span>
+                          {(c.failed_count ?? 0) > 0 && (
+                            <span className="text-rose-400 text-[11px]">
+                              ({c.failed_count} failed)
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
-                        {c.status === "running" && (
-                          <Badge variant="outline" className="border-cyan-500/40 text-cyan-400 gap-1 text-[10px]">
-                            <Clock className="h-3 w-3 animate-spin" /> Dispatching...
-                          </Badge>
+                        {(c.status === "running" || c.status === "stopping") && (
+                          <div className="space-y-1">
+                            <Badge variant="outline" className="border-rose-500/40 text-rose-300 bg-rose-500/10 gap-1.5 text-[10px] animate-pulse">
+                              <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping" />
+                              {c.status === "stopping" ? "Stopping..." : "Dispatching Live"}
+                            </Badge>
+                            {c.est_human && (
+                              <div className="text-[10px] font-mono text-cyan-400 flex items-center gap-1 whitespace-nowrap">
+                                <Clock className="h-2.5 w-2.5 shrink-0" /> {c.est_human}
+                              </div>
+                            )}
+                          </div>
                         )}
                         {c.status === "done" && (
                           <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 gap-1 text-[10px]">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, type FormEvent } from "react";
-import { Send, UserCheck, RefreshCw, Sparkles, Play, Square } from "lucide-react";
+import { Send, UserCheck, RefreshCw, Sparkles, Play, Square, Clock, Activity, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +56,7 @@ export function WhatsAppPanel({
   const [description, setDescription] = useState("Get high converting verified B2B leads across Bangladesh instantly.");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
 
   useEffect(() => {
     scraperApi
@@ -135,15 +136,162 @@ export function WhatsAppPanel({
 
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
   const [isCampaignRunning, setIsCampaignRunning] = useState(false);
+  const [liveCampaignDetails, setLiveCampaignDetails] = useState<{
+    sent: number;
+    total: number;
+    pct: number;
+    est_human: string;
+    latest_log: string;
+    status: string;
+  } | null>(null);
 
-  const handleStopCampaign = async () => {
+  // Preserve & detect any ongoing running campaign on mount or across navigation
+  useEffect(() => {
+    const restoreActiveCampaign = async () => {
+      try {
+        const storedId =
+          typeof window !== "undefined"
+            ? sessionStorage.getItem("active_wa_campaign_id")
+            : null;
+
+        const res = await marketingApi.activeCampaigns();
+        const waCamp = res.data.active_campaigns?.find(
+          (c) => (c.campaign_type || c.type) === "whatsapp"
+        );
+
+        if (waCamp) {
+          const cid = String(waCamp.id);
+          setActiveCampaignId(cid);
+          setIsCampaignRunning(true);
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem("active_wa_campaign_id", cid);
+          }
+          const sent = waCamp.sent_count ?? waCamp.sent ?? 0;
+          const total = waCamp.total_count ?? waCamp.total ?? 1;
+          const pct =
+            waCamp.progress_percent ??
+            (total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : 0);
+          setLiveCampaignDetails({
+            sent,
+            total,
+            pct,
+            est_human: waCamp.est_human || "Calculating ETA...",
+            latest_log: waCamp.latest_log || "Dispatching live in background...",
+            status: waCamp.status,
+          });
+        } else if (storedId) {
+          // If not in active running list, check if stored campaign finished/stopped
+          try {
+            const statusRes = await marketingApi.campaignStatus(storedId);
+            const data = statusRes.data;
+            const sent = data.sent || 0;
+            const total = data.total || 1;
+            const pct =
+              data.progress_percent ??
+              (total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : 0);
+            const logs = data.logs || [];
+            const latest =
+              logs.length > 0
+                ? typeof logs[logs.length - 1] === "string"
+                  ? (logs[logs.length - 1] as string)
+                  : (logs[logs.length - 1] as any).message || ""
+                : "";
+
+            setActiveCampaignId(storedId);
+            const isStillActive =
+              data.status === "running" || data.status === "stopping";
+            setIsCampaignRunning(isStillActive);
+            setLiveCampaignDetails({
+              sent,
+              total,
+              pct,
+              est_human:
+                data.est_human ||
+                (data.status === "done" ? "Completed" : data.status),
+              latest_log: latest,
+              status: data.status,
+            });
+          } catch {
+            sessionStorage.removeItem("active_wa_campaign_id");
+          }
+        }
+      } catch {
+        // Ignore network hiccup
+      }
+    };
+
+    restoreActiveCampaign();
+  }, []);
+
+  // Poll live campaign status while running
+  useEffect(() => {
+    if (!isCampaignRunning || !activeCampaignId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await marketingApi.campaignStatus(activeCampaignId);
+        const data = res.data;
+        const sent = data.sent || 0;
+        const total = data.total || 1;
+        const pct =
+          data.progress_percent ??
+          (total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : 0);
+        const logs = data.logs || [];
+        const latest =
+          logs.length > 0
+            ? typeof logs[logs.length - 1] === "string"
+              ? (logs[logs.length - 1] as string)
+              : (logs[logs.length - 1] as any).message || ""
+            : "Dispatching live...";
+
+        setLiveCampaignDetails({
+          sent,
+          total,
+          pct,
+          est_human: data.est_human || "Calculating ETA...",
+          latest_log: latest,
+          status: data.status,
+        });
+
+        if (
+          data.status === "done" ||
+          data.status === "failed" ||
+          data.status === "stopped"
+        ) {
+          setIsCampaignRunning(false);
+          if (data.status === "done")
+            toast.success("WhatsApp campaign finished successfully!");
+          else if (data.status === "stopped")
+            toast.info("WhatsApp campaign stopped.");
+          else toast.error("WhatsApp campaign ended or session dropped.");
+        }
+      } catch {
+        // Retry next tick
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [isCampaignRunning, activeCampaignId]);
+
+  const confirmStopCampaign = async () => {
     if (!activeCampaignId) return;
     try {
       await marketingApi.stopCampaign(activeCampaignId);
-      toast.info(`Stop request sent for campaign ${activeCampaignId}`);
+      toast.success("WhatsApp campaign stopped immediately.");
       setIsCampaignRunning(false);
+      setLiveCampaignDetails((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "stopped",
+              latest_log: "Campaign stopped immediately by user request.",
+            }
+          : null
+      );
     } catch {
       toast.error("Failed to stop campaign.");
+    } finally {
+      setStopConfirmOpen(false);
     }
   };
 
@@ -172,6 +320,17 @@ export function WhatsAppPanel({
       const cid = String(res.data.campaign_id || `wa_camp_${Date.now()}`);
       setActiveCampaignId(cid);
       setIsCampaignRunning(true);
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("active_wa_campaign_id", cid);
+      }
+      setLiveCampaignDetails({
+        sent: 0,
+        total: selectedList.length > 0 ? selectedList.length : (groupContacts.length || 1),
+        pct: 0,
+        est_human: "Initializing WhatsApp dispatch session...",
+        latest_log: "Worker thread started...",
+        status: "running",
+      });
       toast.success("WhatsApp campaign launched!");
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Dispatch failed.");
@@ -358,31 +517,109 @@ Return ONLY updated template.`;
             </pre>
           </div>
 
-          {isCampaignRunning && (
-            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex flex-wrap items-center justify-between gap-4 font-mono text-xs">
-              <div className="flex items-center gap-2 text-rose-300">
-                <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
-                <span>WhatsApp Campaign <strong className="text-foreground">{activeCampaignId}</strong> is Dispatching Live</span>
+          {/* Live Campaign Status Card (preserved across navigation and upon completion) */}
+          {liveCampaignDetails && (
+            <div className="p-4 rounded-xl bg-gradient-to-br from-rose-950/40 via-background/90 to-card border border-rose-500/40 shadow-xl space-y-3 font-mono text-xs animate-in fade-in duration-300">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-rose-300">
+                  {isCampaignRunning ? (
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
+                    </span>
+                  ) : liveCampaignDetails.status === "done" ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 text-amber-400" />
+                  )}
+                  <span>
+                    WhatsApp Campaign <strong className="text-foreground">#{activeCampaignId}</strong>{" "}
+                    {isCampaignRunning
+                      ? "is Dispatching Live in Background"
+                      : liveCampaignDetails.status === "done"
+                      ? "Finished Successfully"
+                      : `Status: ${liveCampaignDetails.status.toUpperCase()}`}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {isCampaignRunning && liveCampaignDetails?.est_human && (
+                    <div className="px-2.5 py-1 rounded-md bg-cyan-950/50 border border-cyan-500/30 text-[11px] text-cyan-300 flex items-center gap-1.5">
+                      <Clock className="h-3 w-3 text-cyan-400 shrink-0" />
+                      <span>EST: {liveCampaignDetails.est_human}</span>
+                    </div>
+                  )}
+
+                  {isCampaignRunning ? (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setStopConfirmOpen(true)}
+                      className="h-8 gap-1.5 font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg"
+                    >
+                      <Square className="h-3.5 w-3.5 fill-current" /> Stop Campaign
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setLiveCampaignDetails(null);
+                        setActiveCampaignId(null);
+                        if (typeof window !== "undefined") {
+                          sessionStorage.removeItem("active_wa_campaign_id");
+                        }
+                      }}
+                      className="h-8 gap-1.5 font-bold text-xs border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
+                    >
+                      Start New Campaign
+                    </Button>
+                  )}
+                </div>
               </div>
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={handleStopCampaign}
-                className="h-8 gap-1.5 font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg"
-              >
-                <Square className="h-3.5 w-3.5 fill-current" /> Stop Campaign
-              </Button>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    Dispatched:{" "}
+                    <strong className="text-cyan-400 text-sm font-bold">
+                      {liveCampaignDetails.sent}
+                    </strong>{" "}
+                    / {liveCampaignDetails.total} contacts
+                  </span>
+                  <span className="text-emerald-400 font-bold">{liveCampaignDetails.pct}%</span>
+                </div>
+
+                <div className="w-full h-2.5 bg-secondary/80 rounded-full overflow-hidden border border-border/40 p-0.5">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-500"
+                    style={{ width: `${Math.max(4, liveCampaignDetails.pct)}%` }}
+                  />
+                </div>
+
+                {liveCampaignDetails.latest_log && (
+                  <div className="px-2.5 py-1.5 rounded-md bg-black/60 border border-border/30 text-[11px] text-emerald-400 truncate flex items-center gap-1.5">
+                    <span className="text-cyan-400 shrink-0">&gt;</span>
+                    <span className="truncate">{liveCampaignDetails.latest_log}</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           <Button
             type="submit"
-            disabled={isSubmitting}
-            className="w-full font-bold gap-2 py-5 bg-emerald-500 text-black hover:bg-emerald-600"
+            disabled={isSubmitting || isCampaignRunning}
+            className="w-full font-bold gap-2 py-5 bg-emerald-500 text-black hover:bg-emerald-600 disabled:opacity-60"
           >
             <Play className="h-4 w-4" />
-            {isSubmitting ? "Launching WhatsApp Campaign..." : "Launch WhatsApp Campaign"}
+            {isSubmitting
+              ? "Launching WhatsApp Campaign..."
+              : isCampaignRunning
+              ? "Campaign Dispatching Live in Background (Multi-Page Protected)..."
+              : "Launch WhatsApp Campaign"}
           </Button>
         </form>
       </CardContent>
@@ -394,6 +631,16 @@ Return ONLY updated template.`;
         title="Reset WhatsApp Session"
         description="Are you sure you want to disconnect the current WhatsApp session and scan a new account?"
         confirmText="Reset Session"
+        isDanger
+      />
+
+      <ConfirmModal
+        open={stopConfirmOpen}
+        onClose={() => setStopConfirmOpen(false)}
+        onConfirm={confirmStopCampaign}
+        title="Stop WhatsApp Campaign?"
+        description="Are you sure you want to terminate this WhatsApp campaign immediately? Sent messages cannot be recalled, but all remaining dispatches will halt right away."
+        confirmText="Stop Campaign"
         isDanger
       />
     </Card>
