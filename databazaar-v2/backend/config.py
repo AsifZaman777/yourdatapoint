@@ -18,6 +18,9 @@ if os.path.exists(_env_file):
 BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 SMTP_USER = os.getenv("SMTP_USER", "asifdev777@gmail.com")
 
+# ── Database Configuration ────────────────────────────────
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
 # ── Superadmin & Frontend URL Configuration ───────────────
 FRONTEND_URL = os.getenv("FRONTEND_URL", "").rstrip("/")
 SUPERADMIN_EMAIL = os.getenv("SUPERADMIN_EMAIL", "asifdev777@gmail.com")
